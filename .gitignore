@@ -1,0 +1,29 @@
+# 构建产物
+/build/
+/dist/
+*.manifest
+*.spec.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 本地调试截图（仓库里只保留 docs/images 下的正式图）
+/*.png
+/*.jpg
+/*.jpeg
+!/docs/images/*.png
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+
+# 本地设计笔记（不随仓库发布）
+/SPEC.md
+/_check_widget.py
