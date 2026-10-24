@@ -19,6 +19,7 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 from . import i18n
+from . import squircle
 
 # ---- fonts -------------------------------------------------------------
 # Microsoft YaHei UI (index 1) is the shell's CJK UI face; Segoe UI Variable
@@ -48,7 +49,7 @@ FONT_LATIN_BOLD = [
 # the size presets and the optional DPI matching.
 BASE = {
     "PAD": 34,            # transparent margin: room for the drop shadow
-    "CARD_W": 302, "CARD_H": 118, "RADIUS": 26,
+    "CARD_W": 302, "CARD_H": 118, "RADIUS": 28,
     "TITLE_FS": 22, "SUB_FS": 16,
     "ICON": 64, "ICON_LEFT": 18,
     "PILL_H": 32, "PILL_GAP": 8, "PILL_R": 10, "PILL_MAX_W": 96,
@@ -282,13 +283,14 @@ _SPRITE_CACHE: dict[tuple, Image.Image] = {}
 
 def _round_rect_mask(size: tuple[int, int], box: tuple[int, int, int, int],
                      radius: int) -> Image.Image:
-    """Anti-aliased rounded-rect coverage mask (0..255)."""
+    """Anti-aliased superellipse-cornered coverage mask (0..255)."""
     w, h = size
-    big = Image.new("L", (w * _SS, h * _SS), 0)
-    ImageDraw.Draw(big).rounded_rectangle(
-        (box[0] * _SS, box[1] * _SS,
-         (box[2] + 1) * _SS - 1, (box[3] + 1) * _SS - 1),
-        radius=radius * _SS, fill=255)
+    ss = _SS
+    big = Image.new("L", (w * ss, h * ss), 0)
+    bw = (box[2] - box[0] + 1) * ss
+    bh = (box[3] - box[1] + 1) * ss
+    pts = squircle.curve(bw, bh, radius * ss, (box[0] * ss, box[1] * ss))
+    ImageDraw.Draw(big).polygon(pts, fill=255)
     return big.resize((w, h), Image.Resampling.LANCZOS)
 
 
@@ -375,8 +377,8 @@ def _aa_patch(w: int, h: int, radius: int, color) -> Image.Image:
     if got is not None:
         return got
     big = Image.new("RGBA", (w * _SS, h * _SS), (0, 0, 0, 0))
-    ImageDraw.Draw(big).rounded_rectangle(
-        (0, 0, w * _SS - 1, h * _SS - 1), radius=radius * _SS, fill=color)
+    pts = squircle.polygon(w * _SS, h * _SS, radius * _SS)
+    ImageDraw.Draw(big).polygon(pts, fill=color)
     got = big.resize((w, h), Image.Resampling.LANCZOS)
     _SPRITE_CACHE[key] = got
     return got
@@ -408,9 +410,8 @@ def _shadow_sprite(w: int, h: int, radius: int, blur: int, dy: int,
     pad = SHADOW_PAD
     sw, sh = w + pad * 2, h + pad * 2
     mask = Image.new("L", (sw, sh), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (pad, pad, pad + w - 1, pad + h - 1), radius=radius,
-        fill=max(0, min(255, alpha)))
+    pts = squircle.curve(w, h, radius, (pad, pad))
+    ImageDraw.Draw(mask).polygon(pts, fill=max(0, min(255, alpha)))
     if blur > 0:
         mask = mask.filter(ImageFilter.GaussianBlur(blur))
     spr = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
@@ -487,9 +488,9 @@ def _icon_shadow(size: int, alpha: int, blur: float) -> tuple[Image.Image, int]:
         pad = 24
         d = size + pad
         mask = Image.new("L", (d, d), 0)
-        ImageDraw.Draw(mask).rounded_rectangle(
-            (pad // 2, pad // 2 + 2, pad // 2 + size - 1, pad // 2 + size + 1),
-            radius=max(2, int(size * 0.24)), fill=alpha)
+        pts = squircle.curve(size, size, max(2, int(size * 0.24)),
+                             (pad // 2, pad // 2 + 2))
+        ImageDraw.Draw(mask).polygon(pts, fill=alpha)
         mask = mask.filter(ImageFilter.GaussianBlur(blur))
         spr = Image.new("RGBA", (d, d), (0, 0, 0, 0))
         spr.putalpha(mask)

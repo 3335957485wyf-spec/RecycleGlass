@@ -31,6 +31,7 @@ import math
 
 from . import anim
 from . import i18n
+from . import squircle
 from . import screencap
 from .icons import draw_icon
 from . import w32
@@ -46,8 +47,8 @@ from .render import _font, to_bgra
 # as the card.
 BASE = {
     "MENU_W": 316, "ITEM_H": 50, "PAD_TOP": 6, "PAD_BOTTOM": 6,
-    "SEP_BLOCK": 6, "RADIUS": 14, "ICON_LEFT": 22, "ICON_SIZE": 24,
-    "TEXT_LEFT": 62, "CHEV_INSET": 27, "ITEM_RADIUS": 7, "HOVER_INSET": 4,
+    "SEP_BLOCK": 6, "RADIUS": 15, "ICON_LEFT": 22, "ICON_SIZE": 24,
+    "TEXT_LEFT": 62, "CHEV_INSET": 27, "ITEM_RADIUS": 8, "HOVER_INSET": 4,
     "BODY_FONT_SIZE": 20, "SET_FONT_SIZE": 17,
     "SET_ROW_H": 48, "SET_INDENT": 22, "SET_LABEL_W": 78,
     "SET_VALUE_W": 56, "SEG_H": 31,
@@ -226,9 +227,9 @@ def _aa_mask(w: int, h: int, radius: int, inset: int = 0) -> Image.Image:
         return got
     big = Image.new("L", (w * _SS, h * _SS), 0)
     i = inset * _SS
-    ImageDraw.Draw(big).rounded_rectangle(
-        (i, i, w * _SS - 1 - i, h * _SS - 1 - i),
-        radius=max(0, (radius - inset)) * _SS, fill=255)
+    pts = squircle.curve(w * _SS - 2 * i, h * _SS - 2 * i,
+                         max(0, (radius - inset)) * _SS, (i, i))
+    ImageDraw.Draw(big).polygon(pts, fill=255)
     got = big.resize((w, h), Image.Resampling.LANCZOS)
     _MASK_CACHE[key] = got
     return got
@@ -318,8 +319,8 @@ def _aa_patch(w: int, h: int, radius: int, color) -> Image.Image:
     if got is not None:
         return got
     big = Image.new("RGBA", (w * _SS, h * _SS), (0, 0, 0, 0))
-    ImageDraw.Draw(big).rounded_rectangle(
-        (0, 0, w * _SS - 1, h * _SS - 1), radius=radius * _SS, fill=color)
+    pts = squircle.polygon(w * _SS, h * _SS, radius * _SS)
+    ImageDraw.Draw(big).polygon(pts, fill=color)
     got = big.resize((w, h), Image.Resampling.LANCZOS)
     _PATCH_CACHE[key] = got
     return got
