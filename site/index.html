@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RecycleGlass — 桌面回收站，换一种材质</title>
+<meta name="description" content="RecycleGlass 3.1：Win11 桌面回收站毛玻璃挂件。圆角、毛玻璃、实时壁纸取色，双击打开、拖放回收、右键即设置。单文件免安装。" />
+<meta name="theme-color" content="#06060a" />
+<link rel="icon" href="assets/icon-64.png" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="RecycleGlass — 桌面回收站，换一种材质" />
+<meta property="og:description" content="Win11 桌面回收站毛玻璃挂件：圆角、实时壁纸取色、拖放回收，单文件免安装。" />
+<meta property="og:image" content="https://3335957485wyf-spec.github.io/RecycleGlass/assets/icon.png" />
+<meta property="og:url" content="https://3335957485wyf-spec.github.io/RecycleGlass/" />
+<link rel="apple-touch-icon" href="assets/icon-256.png" />
+<style>
+  :root{
+    --bg:#06060a;
+    --ink:#f7f7fb;
+    --muted:rgba(247,247,251,.56);
+    --muted-2:rgba(247,247,251,.42);
+    --b1:#9dbdfe;
+    --b2:#b5b6ff;
+    --b3:#b2acfb;
+    --line:rgba(255,255,255,.10);
+    --line-soft:rgba(255,255,255,.06);
+    --r-xl:30px;
+    --r-lg:24px;
+    --r-md:16px;
+    --ease:cubic-bezier(.16,1,.3,1);
+    --ease-soft:cubic-bezier(.22,.61,.24,1);
+    --maxw:1200px;
+    --nav-h:64px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:"MiSans","HarmonyOS Sans SC","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  img{display:block;max-width:100%}
+  a{color:inherit;text-decoration:none}
+  button,input{font:inherit;color:inherit}
+  button{border:0;background:none;cursor:pointer}
+  ::selection{background:rgba(157,189,254,.34);color:#fff}
+  :focus-visible{outline:2px solid var(--b1);outline-offset:3px;border-radius:6px}
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  .wrap{width:100%;max-width:var(--maxw);margin:0 auto;padding:0 28px}
+
+  /* ============ nav ============ */
+  .nav-fix{position:fixed;inset:0 0 auto 0;z-index:80;display:flex;justify-content:center;padding:14px 20px;pointer-events:none}
+  .nav{
+    pointer-events:auto;display:flex;align-items:center;gap:22px;
+    height:50px;padding:0 8px 0 14px;border-radius:999px;width:min(980px,100%);
+    border:1px solid transparent;color:var(--ink);
+    transition:background .45s var(--ease),border-color .45s var(--ease),box-shadow .45s var(--ease),color .45s var(--ease);
+  }
+  .nav.stuck{
+    background:rgba(12,12,18,.62);border-color:rgba(255,255,255,.10);
+    box-shadow:0 18px 50px -22px rgba(0,0,0,.85),inset 0 1px 0 rgba(255,255,255,.10);
+    backdrop-filter:blur(20px) saturate(1.7);-webkit-backdrop-filter:blur(20px) saturate(1.7);
+  }
+  .nav.on-light{color:#0a0a0c}
+  .nav.on-light.stuck{background:rgba(255,255,255,.74);border-color:rgba(9,9,11,.08);box-shadow:0 18px 40px -24px rgba(9,9,11,.35),inset 0 1px 0 rgba(255,255,255,.9)}
+  .brand{display:flex;align-items:center;gap:10px;font-size:14.5px;font-weight:650;letter-spacing:-.01em}
+  .brand img{width:26px;height:26px;box-shadow:0 6px 16px -6px rgba(120,150,255,.8)}
+  .brand i{font-style:normal;color:var(--b2)}
+  .nav-links{display:flex;gap:26px;font-size:13.5px;font-weight:500;margin-left:auto}
+  .nav-links a{opacity:.72;transition:opacity .2s}
+  .nav-links a:hover{opacity:1}
+  .nav-cta{
+    display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:999px;
+    font-size:13px;font-weight:600;background:#fff;color:#08080c;
+    transition:transform .2s var(--ease),box-shadow .3s var(--ease);
+  }
+  .nav-cta:hover{transform:translateY(-1px);box-shadow:0 10px 24px -10px rgba(255,255,255,.4)}
+  .nav.on-light .nav-cta{background:#0a0a0c;color:#fff}
+  .prog{position:fixed;top:0;left:0;height:2px;width:0;z-index:90;background:linear-gradient(90deg,var(--b1),var(--b3))}
+
+  /* ============ common ============ */
+  .section{position:relative;padding:clamp(88px,10vw,148px) 0;scroll-margin-top:80px}
+  .section[data-theme="light"]{background:#fbfbfd;color:#0a0a0c}
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:8px;margin:0 0 18px;
+    font-size:12.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--b2);
+  }
+  .eyebrow::before{content:"";width:16px;height:1px;background:currentColor;opacity:.6}
+  .section[data-theme="light"] .eyebrow{color:#5b6bf0}
+  h2{
+    margin:0;font-size:clamp(30px,4.2vw,54px);line-height:1.14;letter-spacing:-.035em;font-weight:680;
+    text-wrap:balance;
+  }
+  h2 em{font-style:normal;display:block;color:var(--muted-2)}
+  .section[data-theme="light"] h2 em{color:#9a9aa6}
+  .lede{margin:20px 0 0;max-width:560px;font-size:15.5px;line-height:1.8;color:var(--muted)}
+  .section[data-theme="light"] .lede{color:#61616e}
+  .btn{
+    display:inline-flex;align-items:center;gap:9px;height:46px;padding:0 22px;border-radius:999px;
+    font-size:14px;font-weight:600;white-space:nowrap;
+    transition:transform .22s var(--ease),box-shadow .3s var(--ease),background .25s;
+    will-change:transform;
+  }
+  .btn:active{transform:scale(.97)}
+  .btn-p{background:linear-gradient(180deg,#fff,#f1f1f6);color:#08080c;box-shadow:0 14px 34px -14px rgba(180,196,255,.7),inset 0 1px 0 #fff}
+  .btn-p:hover{box-shadow:0 20px 44px -16px rgba(180,196,255,.85)}
+  .btn-g{border:1px solid rgba(255,255,255,.16);color:var(--ink);background:rgba(255,255,255,.03);backdrop-filter:blur(8px)}
+  .btn-g:hover{background:rgba(255,255,255,.08)}
+  .section[data-theme="light"] .btn-g{border-color:rgba(9,9,11,.12);color:#0a0a0c;background:#fff}
+  .btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+  /* ============ hero ============ */
+  .hero{position:relative;min-height:100svh;display:flex;align-items:center;padding:calc(var(--nav-h) + 56px) 0 80px;overflow:hidden}
+  .hero-bg{position:absolute;inset:0;z-index:0;overflow:hidden}
+  .hero-bg .blob{position:absolute;border-radius:50%;filter:blur(90px)}
+  .hero-bg .b1{width:60vw;height:60vw;left:-18vw;top:-22vw;background:radial-gradient(circle,#2a3fa8,transparent 62%);opacity:.75}
+  .hero-bg .b2{width:52vw;height:52vw;right:-14vw;top:-6vw;background:radial-gradient(circle,#8d6fd8,transparent 62%);opacity:.55}
+  .hero-bg .b3{width:70vw;height:40vw;left:10vw;bottom:-22vw;background:radial-gradient(circle,#1c4d8c,transparent 66%);opacity:.5}
+  .hero-bg .vig{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 0%,transparent 34%,rgba(6,6,10,.55) 74%,#06060a 100%)}
+  .hero-bg .noise{position:absolute;inset:0;opacity:.16;mix-blend-mode:overlay;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .hero-grid{position:relative;z-index:2;display:grid;grid-template-columns:1.02fr .98fr;gap:40px;align-items:center}
+  .hero-copy{max-width:560px}
+  .hero-tag{
+    display:inline-flex;align-items:center;gap:9px;height:30px;padding:0 12px;margin-bottom:26px;
+    border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);
+    font-size:12px;letter-spacing:.02em;color:rgba(247,247,251,.72);
+    backdrop-filter:blur(10px);
+  }
+  .hero-tag .dot{width:6px;height:6px;border-radius:50%;background:#8ef0b8;box-shadow:0 0 10px #8ef0b8}
+  h1{
+    margin:0;font-size:clamp(40px,5.4vw,76px);line-height:1.04;letter-spacing:-.045em;font-weight:700;
+    text-wrap:balance;
+  }
+  h1 .g{
+    background:linear-gradient(96deg,#fff 6%,var(--b1) 42%,var(--b3) 88%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .hero-sub{margin:24px 0 0;font-size:16px;line-height:1.85;color:var(--muted);max-width:470px}
+  .hero-cta{display:flex;gap:12px;margin-top:34px;flex-wrap:wrap}
+  .hero-meta{display:flex;gap:14px;align-items:center;margin-top:34px;font-size:12.5px;color:var(--muted-2);flex-wrap:wrap}
+  .hero-meta i{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.5}
+
+  /* 3D scene */
+  .stage{position:relative;height:clamp(400px,40vw,470px);perspective:1500px;perspective-origin:54% 50%}
+  .stage-inner{position:absolute;inset:0;transform-style:preserve-3d;transform:rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform .18s linear;will-change:transform}
+  .stage-glow{
+    position:absolute;left:46%;top:44%;width:80%;height:76%;margin:-38% 0 0 -40%;
+    background:radial-gradient(closest-side,rgba(157,189,254,.42),rgba(178,172,251,.16) 56%,transparent 72%);
+    filter:blur(30px);transform:translateZ(-60px);
+  }
+  .stage-floor{
+    position:absolute;left:12%;right:2%;bottom:-2%;height:70px;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(0,0,0,.7),transparent 74%);
+    filter:blur(22px);transform:translateZ(-30px) rotateX(70deg);
+  }
+  .card3d{
+    position:absolute;left:2%;top:50%;width:96%;max-width:540px;
+    margin-top:-78px;
+    padding:26px 30px 26px 136px;border-radius:34px;display:flex;align-items:center;gap:18px;
+    background:radial-gradient(130% 150% at 8% -10%,rgba(157,189,254,.30),transparent 58%),radial-gradient(120% 140% at 100% 110%,rgba(178,172,251,.22),transparent 56%),linear-gradient(158deg,rgba(255,255,255,.20),rgba(255,255,255,.06) 56%,rgba(255,255,255,.12));
+    border:1px solid rgba(255,255,255,.17);
+    box-shadow:0 60px 110px -46px rgba(0,0,0,.95),inset 0 1px 0 rgba(255,255,255,.18),inset 0 -34px 70px -46px rgba(157,189,254,.5);
+    backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);
+    transform:rotateX(6deg) rotateY(-13deg) rotateZ(-1.4deg);
+    transform-style:preserve-3d;
+    transition:transform .5s var(--ease),box-shadow .5s var(--ease);
+  }
+  .card3d::after{
+    content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+    background:
+      radial-gradient(300px circle at var(--px,50%) var(--py,-10%),rgba(255,255,255,.30),transparent 62%),
+      linear-gradient(112deg,rgba(255,255,255,.16),transparent 34%,transparent 68%,rgba(255,255,255,.06));
+    opacity:.85;transition:opacity .3s var(--ease);
+  }
+  .card3d:hover::after{opacity:1}
+  .card3d .pop{
+    position:absolute;left:-34px;top:50%;width:156px;height:156px;margin-top:-88px;
+    transform:translateZ(78px) rotate(-5deg);
+    animation:float 9s var(--ease-soft) infinite;
+    filter:drop-shadow(0 30px 46px rgba(88,108,255,.5));
+  }
+  @keyframes float{
+    0%,100%{transform:translateZ(78px) rotate(-5deg) translateY(0)}
+    50%{transform:translateZ(78px) rotate(-5deg) translateY(-9px)}
+  }
+  .c3-text{min-width:0;flex:1;position:relative}
+  .c3-title{font-size:21px;font-weight:650;letter-spacing:-.01em}
+  .c3-line{position:relative;height:23px;margin-top:4px}
+  .c3-meta{position:absolute;inset:0;font-size:14.5px;color:rgba(255,255,255,.62)}
+  .c3-actions{position:absolute;inset:0;display:flex;gap:8px;opacity:0;transform:translateY(6px)}
+  .c3-actions span{display:inline-flex;align-items:center;height:27px;padding:0 12px;border-radius:8px;font-size:12px;font-weight:600;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.22)}
+  .c3-actions span.w{color:#ffb4b4;border-color:rgba(255,180,180,.32)}
+  .c3-meta,.c3-actions{transition:opacity .16s linear,transform .24s var(--ease-soft)}
+  .card3d.hv .c3-meta{opacity:0;transform:translateY(-5px)}
+  .card3d.hv .c3-actions{opacity:1;transform:none}
+  .chip{
+    position:absolute;display:inline-flex;align-items:center;gap:8px;
+    height:34px;padding:0 13px;border-radius:11px;font-size:12px;font-weight:550;white-space:nowrap;
+    background:rgba(16,16,24,.55);border:1px solid rgba(255,255,255,.14);color:rgba(247,247,251,.86);
+    backdrop-filter:blur(14px) saturate(1.4);
+    box-shadow:0 16px 30px -18px rgba(0,0,0,.9);
+  }
+  .chip b{color:#fff;font-weight:650}
+  .chip-a{right:0;top:18%;transform:translateZ(52px) rotate(-2deg)}
+  .chip-b{left:5%;top:73%;transform:translateZ(40px) rotate(1.5deg)}
+  .chip .k{width:6px;height:6px;border-radius:2px;background:var(--b2)}
+
+  /* ============ geometry: sticky 3D ============ */
+  .geometry{overflow:visible}
+  .geo-head{max-width:700px;margin:0 auto clamp(26px,3.4vw,44px);text-align:center}
+  .geo-head .lede{margin-left:auto;margin-right:auto}
+  .geo-track{position:relative;height:330vh}
+  .geo-sticky{position:sticky;top:0;height:100svh;display:flex;align-items:center;overflow:hidden}
+  .geo-grid{display:grid;grid-template-columns:.38fr .62fr;gap:clamp(24px,4vw,56px);align-items:center;width:100%}
+  .geo-steps{display:flex;flex-direction:column;gap:26px;max-width:320px}
+  .step{position:relative;padding-left:20px;opacity:.28;transition:opacity .55s var(--ease)}
+  .step::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:2px;border-radius:2px;background:rgba(255,255,255,.14);transition:background .55s var(--ease)}
+  .step.on{opacity:1}
+  .step.on::before{background:linear-gradient(180deg,var(--b1),var(--b3))}
+  .step .n{font-size:10.5px;letter-spacing:.18em;color:var(--b2);font-weight:600}
+  .step h3{margin:7px 0 6px;font-size:16px;font-weight:650;letter-spacing:-.01em;display:flex;align-items:baseline;gap:8px}
+  .step h3 b{color:var(--b1);font-weight:650;font-size:13.5px}
+  .step p{margin:0;font-size:12.5px;line-height:1.7;color:var(--muted)}
+
+  .geo-scene{position:relative;height:clamp(340px,42vw,460px);perspective:1500px;perspective-origin:52% 48%}
+  .geo-scene::before{
+    content:"";position:absolute;left:8%;top:12%;width:86%;height:76%;pointer-events:none;
+    background:radial-gradient(closest-side,rgba(120,145,255,.20),rgba(120,145,255,.06) 55%,transparent 74%);
+    filter:blur(30px);
+  }
+  .geo-scene::after{
+    content:"";position:absolute;inset:-6% -4%;pointer-events:none;z-index:-1;
+    background-image:radial-gradient(rgba(255,255,255,.10) 1px,transparent 1px);
+    background-size:26px 26px;
+    -webkit-mask-image:radial-gradient(70% 70% at 50% 46%,#000 20%,transparent 78%);
+    mask-image:radial-gradient(70% 70% at 50% 46%,#000 20%,transparent 78%);
+    opacity:.5;
+  }
+  .gs-scale{position:absolute;inset:0;transform:scale(var(--s,1));transform-style:preserve-3d}
+  .gs-item{position:absolute;left:50%;top:50%;transform-style:preserve-3d;will-change:transform}
+  .gs-surface{
+    position:relative;border:1px solid rgba(255,255,255,.15);
+    background-color:rgba(30,32,46,.62);
+    background-image:
+      radial-gradient(140% 160% at 6% -12%,rgba(157,189,254,.34),transparent 58%),
+      radial-gradient(120% 140% at 104% 112%,rgba(178,172,251,.22),transparent 56%),
+      linear-gradient(158deg,rgba(255,255,255,.16),rgba(255,255,255,.04) 56%,rgba(255,255,255,.09));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.20),inset 0 -30px 60px -44px rgba(157,189,254,.5);
+    backdrop-filter:blur(22px) saturate(1.6);-webkit-backdrop-filter:blur(22px) saturate(1.6);
+  }
+  .gs-card{filter:drop-shadow(0 34px 46px rgba(0,0,0,.55))}
+  .gs-menu{filter:drop-shadow(0 30px 50px rgba(0,0,0,.6))}
+  .gs-card{width:min(440px,88vw);opacity:.12}
+  .gs-card .gs-surface{border-radius:28px;padding:20px 22px;display:flex;align-items:center;gap:16px}
+  .gs-card .gi{width:56px;height:56px;flex:0 0 56px;display:grid;place-items:center;filter:drop-shadow(0 6px 14px rgba(90,110,220,.5))}
+  .gs-card .gi img{width:56px;height:56px}
+  .gs-card .gt{font-size:19px;font-weight:650;letter-spacing:-.01em}
+  .gs-card .gm{font-size:13.5px;color:rgba(255,255,255,.74);margin-top:3px}
+
+  .gs-menu{width:min(312px,74vw);top:50%;margin-top:-46px;opacity:0}
+  .gs-menu .gs-surface{border-radius:15px;overflow:hidden;background-color:rgba(20,21,32,.96);background-image:linear-gradient(170deg,rgba(56,58,82,.55),rgba(18,19,30,.35))}
+  .gm-head{display:flex;align-items:center;gap:10px;padding:13px 14px 11px}
+  .gm-head .mi{width:36px;height:36px;display:grid;place-items:center;filter:drop-shadow(0 5px 12px rgba(120,140,255,.5))}
+  .gm-head .mi img{width:36px;height:36px}
+  .gm-head .mt{font-size:13.5px;font-weight:640;line-height:1.25}
+  .gm-head .ms{font-size:11px;color:var(--muted);margin-top:2px}
+  .gm-row{display:flex;align-items:center;gap:9px;padding:10px 14px;font-size:12.5px;border-top:1px solid rgba(255,255,255,.06)}
+  .gm-row svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+  .gm-row .chev{margin-left:auto;opacity:.45;transition:transform .3s var(--ease)}
+  .gm-row.danger{color:#ffb4b4}
+  .gm-row.on{background:rgba(255,255,255,.07)}
+  .gm-sub{max-height:0;overflow:hidden;background:rgba(0,0,0,.18);transition:max-height .3s var(--ease)}
+  .gm-sub .gm-row{border-top:1px solid rgba(255,255,255,.05);font-size:11.5px;color:var(--muted);padding:8px 14px 8px 30px}
+  .gm-sub .bar{height:2px;border-radius:2px;background:rgba(255,255,255,.14);flex:1;max-width:64px;margin-left:auto;position:relative;overflow:hidden}
+  .gm-sub .bar i{position:absolute;inset:0 auto 0 0;background:var(--b1);border-radius:2px}
+
+  /* formula band */
+  .formula-band{
+    margin-top:clamp(36px,5vw,64px);padding:clamp(26px,3.4vw,40px);
+    border-radius:24px;border:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));
+    display:grid;grid-template-columns:1fr auto;gap:clamp(24px,4vw,56px);align-items:center;
+  }
+  .fb-label{margin:0 0 14px;font-size:11.5px;letter-spacing:.16em;color:var(--b2);font-weight:600;text-transform:uppercase}
+  .fb-eq{
+    margin:0;font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+    font-size:clamp(24px,3vw,34px);letter-spacing:-.01em;color:#fff;line-height:1.1;
+  }
+  .fb-eq .v{color:var(--b1);font-size:.72em;vertical-align:super;transition:color .25s}
+  .fb-hint{margin:10px 0 0;font-size:11px;letter-spacing:.04em;color:rgba(247,247,251,.26)}
+  .fb-note{margin:14px 0 0;font-size:12.5px;line-height:1.75;color:var(--muted-2);max-width:420px}
+  .fb-shapes{display:flex;gap:12px}
+  .fbs{
+    display:flex;flex-direction:column;align-items:center;gap:9px;
+    padding:12px 12px 10px;border-radius:14px;border:1px solid transparent;
+    transition:background .25s,border-color .25s,transform .25s var(--ease);
+  }
+  .fbs:hover{background:rgba(255,255,255,.04)}
+  .fbs[aria-pressed="true"]{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12)}
+  .fbs svg{width:74px;height:74px;overflow:visible}
+  .fbs .p-fill{opacity:0;transition:opacity .28s var(--ease)}
+  .fbs[aria-pressed="true"] .p-fill{opacity:1}
+  .fbs .p-line{transition:stroke .25s}
+  .fbs[aria-pressed="true"] .p-line{stroke:rgba(255,255,255,.72)}
+  .fbs span{font-size:11px;color:var(--muted-2);letter-spacing:.02em}
+  .fbs[aria-pressed="true"] span{color:var(--ink)}
+
+  @media (max-width:1020px){
+    .geo-grid{grid-template-columns:1fr;gap:18px;align-content:center}
+    .geo-steps{flex-direction:row;max-width:none;gap:14px}
+    .step{padding:12px 0 0;flex:1}
+    .step::before{left:0;right:0;top:0;bottom:auto;width:auto;height:2px}
+    .step h3{font-size:13.5px;flex-wrap:wrap;gap:4px}
+    .step p{font-size:11.5px}
+    .geo-scene{height:min(46vh,380px)}
+    .formula-band{grid-template-columns:1fr}
+    .fb-shapes{justify-content:space-between}
+  }
+  @media (max-width:640px){
+    .geo-steps .step p{display:none}
+    .fbs svg{width:58px;height:58px}
+  }
+
+  /* ============ glass lab (light) ============ */
+  .glass-grid{display:grid;grid-template-columns:1.06fr .94fr;gap:clamp(32px,5vw,68px);align-items:center}
+  .win{
+    position:relative;border-radius:26px;overflow:hidden;height:clamp(320px,36vw,400px);
+    box-shadow:0 40px 80px -46px rgba(9,9,11,.5),0 0 0 1px rgba(9,9,11,.06);
+  }
+  .win-bg{
+    position:absolute;inset:0;
+    background:
+      repeating-linear-gradient(118deg,rgba(255,255,255,.75) 0 2px,transparent 2px 24px),
+      radial-gradient(circle at 12% 38%,#4f80ff 0 17%,transparent 17.15%),
+      radial-gradient(circle at 90% 62%,#a96cff 0 19%,transparent 19.15%),
+      radial-gradient(circle at 52% 6%,#ffb0d8 0 7%,transparent 7.15%),
+      radial-gradient(circle at 62% 98%,#3fc8ff 0 11%,transparent 11.15%),
+      linear-gradient(150deg,#e2ebff,#ece5ff 46%,#cfddff);
+  }
+  .win-bg::after{
+    content:"";position:absolute;inset:0;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+    opacity:.14;mix-blend-mode:overlay;
+  }
+  .glass-demo{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(320px,74%);
+    padding:18px 20px;border-radius:22px;display:flex;align-items:center;gap:14px;
+    background:var(--glass-bg,rgba(255,255,255,.42));
+    backdrop-filter:blur(var(--glass-blur,18px)) saturate(1.5);
+    -webkit-backdrop-filter:blur(var(--glass-blur,18px)) saturate(1.5);
+    border:1px solid rgba(255,255,255,.5);
+    box-shadow:0 26px 50px -24px rgba(40,50,90,.45),inset 0 1px 0 rgba(255,255,255,.9),inset 0 0 0 1px rgba(255,255,255,.18);
+    color:#12121a;transition:background .25s,color .25s,border-color .25s;
+  }
+  .glass-demo .gi{width:44px;height:44px;display:grid;place-items:center;filter:drop-shadow(0 6px 14px rgba(90,110,220,.45))}
+  .glass-demo .gi img{width:44px;height:44px}
+  .glass-demo .gt{font-size:15px;font-weight:650;line-height:1.3}
+  .glass-demo .gm{font-size:12.5px;color:rgba(20,20,30,.62);margin-top:2px}
+  .controls{margin-top:24px;display:grid;gap:14px;max-width:420px}
+  .ctl{display:grid;grid-template-columns:64px 1fr 52px;align-items:center;gap:12px;font-size:12.5px}
+  .ctl span{color:#61616e}
+  .ctl output{text-align:right;font-weight:600;color:#0a0a0c}
+  .segment{display:inline-flex;padding:3px;border-radius:999px;background:#eeeff4;gap:2px}
+  .segment button{padding:6px 14px;border-radius:999px;font-size:12.5px;font-weight:550;color:#5f5f6b;transition:background .25s var(--ease),color .25s}
+  .segment button[aria-pressed="true"]{background:#fff;color:#0a0a0c;box-shadow:0 2px 6px rgba(9,9,11,.1)}
+  .glass-notes{display:grid;gap:22px;margin:0;list-style:none;padding:0}
+  .glass-notes li{display:grid;grid-template-columns:auto 1fr;gap:14px}
+  .glass-notes .n{
+    width:30px;height:30px;border-radius:10px;display:grid;place-items:center;
+    font-size:11.5px;font-weight:700;color:#5b6bf0;background:rgba(91,107,240,.09);border:1px solid rgba(91,107,240,.16);
+  }
+  .glass-notes h3{margin:2px 0 6px;font-size:15px;font-weight:650;letter-spacing:-.01em}
+  .glass-notes p{margin:0;font-size:13px;line-height:1.7;color:#61616e}
+  code{
+    font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;font-size:.9em;
+    padding:1px 5px;border-radius:5px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.09);
+  }
+  .section[data-theme="light"] code{background:#f0f0f5;border-color:rgba(9,9,11,.06);color:#3f3f46}
+
+  /* ============ micro demos ============ */
+  .micro-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:clamp(34px,4vw,54px)}
+  .micro{
+    padding:22px;border-radius:var(--r-lg);border:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));
+    display:flex;flex-direction:column;gap:18px;min-height:286px;
+  }
+  .micro-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .micro-head h3{margin:0;font-size:14.5px;font-weight:640}
+  .micro-head .t{font-size:11.5px;color:var(--muted-2);font-weight:600;letter-spacing:.04em}
+  .micro-stage{flex:1;display:grid;place-items:center;border-radius:var(--r-md);background:rgba(255,255,255,.02);border:1px solid var(--line-soft);padding:16px;overflow:hidden}
+  .hovercard{
+    width:100%;max-width:250px;padding:13px 14px;border-radius:18px;display:flex;align-items:center;gap:11px;
+    background:linear-gradient(160deg,rgba(255,255,255,.14),rgba(255,255,255,.05));
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 20px 40px -24px rgba(0,0,0,.9);
+    cursor:pointer;transition:box-shadow .3s var(--ease),transform .3s var(--ease);
+  }
+  .hovercard:hover{transform:translateY(-2px);box-shadow:0 26px 46px -22px rgba(0,0,0,.95)}
+  .hovercard .hi{width:34px;height:34px;display:grid;place-items:center;flex:0 0 34px;filter:drop-shadow(0 4px 10px rgba(120,140,255,.5))}
+  .hovercard .hi img{width:34px;height:34px}
+  .hovercard .ht{min-width:0;flex:1}
+  .hovercard .hname{font-size:13px;font-weight:640;transition:transform .24s var(--ease-soft)}
+  .hovercard .hline{position:relative;height:19px;margin-top:2px}
+  .hovercard .hmeta{position:absolute;inset:0;font-size:11.5px;color:var(--muted);transition:opacity .16s linear,transform .24s var(--ease-soft)}
+  .hovercard .hact{position:absolute;inset:0;display:flex;gap:6px;opacity:0;transform:translateY(6px);transition:opacity .16s linear,transform .24s var(--ease-soft)}
+  .hovercard .hact span{font-size:11px;font-weight:600;padding:0 8px;height:20px;display:inline-flex;align-items:center;border-radius:6px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.18)}
+  .hovercard .hact span.w{color:#ffb4b4;border-color:rgba(255,180,180,.28)}
+  .hovercard:hover .hmeta{opacity:0;transform:translateY(-5px)}
+  .hovercard:hover .hact{opacity:1;transform:none}
+  .hovercard:hover .hname{transform:translateY(-2px)}
+
+  .panel-demo{width:100%;max-width:250px;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)}
+  .panel-demo .row{display:flex;align-items:center;gap:9px;padding:10px 12px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.06);transition:background .2s}
+  .panel-demo .row:hover{background:rgba(255,255,255,.05)}
+  .panel-demo .row svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;opacity:.8}
+  .panel-demo .row .chev{margin-left:auto;transition:transform .3s var(--ease)}
+  .panel-demo .sub{max-height:0;overflow:hidden;transition:max-height .3s var(--ease);background:rgba(0,0,0,.16)}
+  .panel-demo.open .sub{max-height:130px}
+  .panel-demo.open .chev{transform:rotate(90deg)}
+  .panel-demo .sub .row{border-bottom:0;font-size:11.5px;color:var(--muted);padding:8px 12px 8px 34px}
+  .panel-demo .bar{height:2px;border-radius:2px;background:rgba(255,255,255,.14);position:relative;flex:1;margin-left:auto;max-width:62px}
+  .panel-demo .bar i{position:absolute;left:0;top:0;height:2px;border-radius:2px;background:var(--b1)}
+
+  .dropzone{
+    width:100%;max-width:250px;min-height:118px;border-radius:16px;display:grid;place-items:center;
+    border:1.5px dashed rgba(255,255,255,.2);color:var(--muted);
+    font-size:12px;text-align:center;line-height:1.65;cursor:pointer;padding:12px;
+    transition:border-color .25s,background .25s,transform .25s var(--ease),color .25s;
+    background:rgba(255,255,255,.02);
+  }
+  .dropzone.over{border-color:rgba(157,189,254,.8);background:rgba(157,189,254,.10);color:#fff;transform:scale(.98)}
+  .dz-ico{display:block;margin:0 auto 6px;width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;opacity:.7}
+  .dropzone.done{border-color:rgba(142,240,184,.55);background:rgba(142,240,184,.10);color:#cdf7dd}
+
+  /* ============ specs ============ */
+  .spec-wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--line);margin-top:clamp(36px,4vw,56px)}
+  .spec{padding:26px 24px 0 0}
+  .spec .n{font-size:clamp(28px,3.2vw,40px);font-weight:700;letter-spacing:-.04em;line-height:1}
+  .spec .n em{font-style:normal;font-size:.4em;color:var(--muted-2);margin-left:5px;letter-spacing:0}
+  .spec .l{margin-top:9px;font-size:12.5px;line-height:1.66;color:var(--muted)}
+  .cmp{margin-top:clamp(40px,5vw,64px);width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixed}
+  .cmp th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.12em;color:var(--muted-2);padding:0 12px 12px 0;text-transform:uppercase}
+  .cmp th:nth-child(1){width:26%}.cmp th:nth-child(2){width:30%}.cmp th:nth-child(3){width:5%}.cmp th:nth-child(4){width:39%}
+  .cmp td{padding:15px 12px 15px 0;border-top:1px solid var(--line-soft);vertical-align:top;line-height:1.6}
+  .cmp td:first-child{font-weight:620;color:var(--ink)}
+  .cmp .b{color:rgba(247,247,251,.36)}
+  .cmp .a{color:var(--ink)}
+  .cmp .ar{color:rgba(247,247,251,.22);text-align:center}
+
+  /* ============ download ============ */
+  .dl-card{
+    position:relative;overflow:hidden;border-radius:var(--r-xl);
+    border:1px solid rgba(255,255,255,.12);
+    background:
+      radial-gradient(90% 140% at 8% 0%,rgba(157,189,254,.20),transparent 56%),
+      radial-gradient(80% 120% at 96% 100%,rgba(178,172,251,.16),transparent 58%),
+      rgba(255,255,255,.03);
+    padding:clamp(26px,3.4vw,42px);
+    display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(24px,4vw,48px);align-items:center;
+  }
+  .dl-left{display:flex;gap:18px;align-items:flex-start}
+  .dl-icon{width:76px;height:76px;box-shadow:0 22px 44px -18px rgba(120,140,255,.8);flex:0 0 76px}
+  .dl-title{font-size:clamp(21px,2.4vw,27px);font-weight:660;letter-spacing:-.02em}
+  .dl-sub{margin-top:8px;font-size:13.5px;line-height:1.7;color:var(--muted);max-width:420px}
+  .dl-btns{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .dl-btns .btn-p{flex:1 1 200px;justify-content:center}
+  .dl-btns .btn-g{flex:0 0 auto;justify-content:center}
+  .dl-meta{margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--muted-2);align-items:center}
+  .dl-meta i{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.6}
+
+  /* ============ footer ============ */
+  footer{padding:52px 0 60px;border-top:1px solid var(--line-soft);background:#050508}
+  .foot{display:flex;justify-content:space-between;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .foot .fbrand{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:620}
+  .foot .fbrand img{width:22px;height:22px;opacity:.9}
+  .foot .fnote{margin-top:10px;font-size:12px;line-height:1.8;color:var(--muted-2);max-width:560px}
+  .foot .flinks{display:flex;gap:20px;font-size:12.5px;color:var(--muted)}
+  .foot .flinks a:hover{color:#fff}
+
+  .section[data-theme="dark"] + .section[data-theme="dark"]::before{
+    content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);
+    width:min(1120px,92%);height:1px;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.09),transparent);
+  }
+
+  /* ============ reveal ============ */
+  [data-rv]{opacity:0;transform:translateY(20px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+  [data-rv].in{opacity:1;transform:none}
+  [data-rv][data-d="1"]{transition-delay:.07s}
+  [data-rv][data-d="2"]{transition-delay:.14s}
+  [data-rv][data-d="3"]{transition-delay:.21s}
+
+  @media (max-width:1020px){
+    .hero-grid{grid-template-columns:1fr;gap:48px}
+    .hero-copy{max-width:none}
+    .stage{height:420px}
+    .radius-grid,.glass-grid,.show{grid-template-columns:1fr}
+    .micro-grid{grid-template-columns:1fr}
+    .micro{min-height:0}
+    .dl-card{grid-template-columns:1fr}
+    .nav-links{display:none}
+    .spec-wrap{grid-template-columns:1fr;border-top:0}
+    .spec{padding:18px 0;border-top:1px solid var(--line)}
+  }
+  @media (max-width:640px){
+    .wrap{padding:0 20px}
+    .hero{padding-top:calc(var(--nav-h) + 30px)}
+    .stage{height:306px}
+    .card3d{left:0;width:100%;margin-top:-54px;padding:16px 18px 16px 106px;border-radius:26px;gap:12px;
+      transform:rotateX(4deg) rotateY(-7deg) rotateZ(-1deg)}
+    .card3d .pop{width:100px;height:100px;left:-2px;margin-top:-52px}
+    .c3-title{font-size:17px}
+    .c3-line{height:20px;margin-top:2px}
+    .c3-meta{font-size:12.5px}
+    .chip{font-size:11px;height:30px;padding:0 10px}
+    .chip-a{top:2%;right:0}
+    .chip-b{display:none}
+    .cmp thead{display:none}
+    .cmp,.cmp tbody,.cmp tr,.cmp td{display:block}
+    .cmp tr{padding:15px 0;border-top:1px solid var(--line-soft)}
+    .cmp td{border:0;padding:0;line-height:1.6}
+    .cmp td:first-child{margin-bottom:6px}
+    .cmp .ar{display:none}
+    .cmp .b::before{content:"改之前 · ";font-size:10.5px;letter-spacing:.06em;color:rgba(247,247,251,.28)}
+    .cmp .a{margin-top:4px}
+    .cmp .a::before{content:"改之后 · ";font-size:10.5px;letter-spacing:.06em;color:rgba(157,189,254,.9)}
+    .dl-left{flex-direction:column}
+    .dl-btns{justify-content:stretch}
+    .dl-btns .btn{flex:1 1 100%}
+    .nav{padding:0 6px 0 12px}
+    .nav-cta{height:34px;padding:0 13px;font-size:12.5px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition-duration:.01ms!important}
+    html{scroll-behavior:auto}
+    [data-rv]{opacity:1;transform:none}
+    .stage-inner{transform:none}
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 12l5 5 5-5"/><path d="M4 21h16"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h5A1.5 1.5 0 0 1 16 4.5V6"/><path d="M18.5 6l-1 13.2A2 2 0 0 1 15.5 21h-7a2 2 0 0 1-2-1.8L5.5 6"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9l-.62-.9A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v9"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+    <linearGradient id="fbGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bccbff"/><stop offset="0.55" stop-color="#b7b4ff"/><stop offset="1" stop-color="#b2acfb"/>
+    </linearGradient>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+  </defs>
+</svg>
+
+<div class="prog" id="prog"></div>
+
+<div class="nav-fix">
+  <header class="nav" id="nav">
+    <a class="brand" href="#top"><img src="assets/icon-64.png" alt="" /><span><b>Recycle</b><i>Glass</i></span></a>
+    <nav class="nav-links">
+      <a href="#radius">几何</a>
+      <a href="#glass">材质</a>
+      <a href="#micro">交互</a>
+      <a href="#spec">规格</a>
+    </nav>
+    <a class="nav-cta" href="#download">下载 <span class="num">v3.1</span></a>
+  </header>
+</div>
+
+<main id="top">
+
+  <!-- ================= HERO ================= -->
+  <section class="hero" data-theme="dark">
+    <div class="hero-bg" aria-hidden="true">
+      <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+      <span class="vig"></span><span class="noise"></span>
+    </div>
+
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="hero-tag"><span class="dot"></span>Windows 11 · 单文件 15.6 MB · 免安装</p>
+        <h1>回收站<br /><span class="g">换一种材质</span></h1>
+        <p class="hero-sub">把桌面角落的一枚图标，做成一张浮在壁纸上的玻璃卡片。它实时读数，双击打开，拖放回收，右键即设置。</p>
+        <div class="hero-cta">
+          <a class="btn btn-p" href="#download"><svg><use href="#i-dl"/></svg>下载 RecycleGlass.exe</a>
+          <a class="btn btn-g" href="#glass">看材质细节<svg><use href="#i-arrow"/></svg></a>
+        </div>
+        <div class="hero-meta">
+          <span>超椭圆 n=3</span><i></i><span>壁纸实时取色</span><i></i><span>6× 超采样</span>
+        </div>
+      </div>
+
+      <div class="stage" id="stage">
+        <div class="stage-inner" id="stageInner">
+          <div class="stage-glow"></div>
+          <div class="stage-floor"></div>
+
+          <div class="card3d" id="heroCard">
+            <img class="pop" src="assets/icon-256.png" alt="RecycleGlass 应用图标" />
+            <div class="c3-text">
+              <div class="c3-title">回收站</div>
+              <div class="c3-line">
+                <div class="c3-meta num">128 项 · 1.24 GB</div>
+                <div class="c3-actions"><span>打开</span><span class="w">清空</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="chip chip-a"><span class="k"></span>清空 <b class="num">19,271</b> 项</div>
+          <div class="chip chip-b"><span class="k"></span>拖放即可回收</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= GEOMETRY ================= -->
+  <section class="section geometry" id="radius" data-theme="dark">
+    <div class="wrap">
+      <div class="geo-head" data-rv>
+        <p class="eyebrow">几何</p>
+        <h2>所有圆角<em>都是同一条曲线</em></h2>
+        <p class="lede">3.1 起，卡片、菜单、菜单项全部落在 <b>|x|ⁿ + |y|ⁿ = 1</b> 上。半径决定角多大，幂次决定角怎么弯 —— 直边进角时曲率从 0 开始，边缘没有折痕。</p>
+      </div>
+    </div>
+
+    <div class="geo-track" id="geoTrack">
+      <div class="geo-sticky">
+        <div class="wrap geo-grid">
+          <div class="geo-steps" id="geoSteps">
+            <div class="step on">
+              <div class="n">01 / CARD</div>
+              <h3>卡片浮上来<b>28px</b></h3>
+              <p>半径最大的一层。直边走到角上，曲率从 0 慢慢长出来，不是突然拐弯。</p>
+            </div>
+            <div class="step">
+              <div class="n">02 / MENU</div>
+              <h3>菜单浮出<b>15px</b></h3>
+              <p>比卡片小一档 —— 两个大圆角并排，中间那道缝会显得臃肿。</p>
+            </div>
+            <div class="step">
+              <div class="n">03 / EXPAND</div>
+              <h3>展开设置<b>8px</b></h3>
+              <p>最小一档，200ms 逐帧揭示。8px 也看得出是曲线，不是直角。</p>
+            </div>
+          </div>
+
+          <div class="geo-scene">
+            <div class="gs-scale" id="gsScale">
+              <div class="gs-item gs-card" id="gsCard">
+                <div class="gs-surface">
+                  <div class="gi"><img src="assets/icon-256.png" alt="" /></div>
+                  <div>
+                    <div class="gt">回收站</div>
+                    <div class="gm num">128 项 · 1.24 GB</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="gs-item gs-menu" id="gsMenu">
+                <div class="gs-surface">
+                  <div class="gm-head">
+                    <div class="mi"><img src="assets/icon-256.png" alt="" /></div>
+                    <div>
+                      <div class="mt">回收站</div>
+                      <div class="ms num">128 项 · 1.24 GB</div>
+                    </div>
+                  </div>
+                  <div class="gm-row"><svg><use href="#i-folder"/></svg>打开回收站</div>
+                  <div class="gm-row danger"><svg><use href="#i-trash"/></svg>清空回收站</div>
+                  <div class="gm-row on">
+                    <svg><use href="#i-sliders"/></svg>外观设置
+                    <svg class="chev" id="gmChev"><use href="#i-chev"/></svg>
+                  </div>
+                  <div class="gm-sub" id="gmSub">
+                    <div class="gm-row">透明度<div class="bar"><i style="width:92%"></i></div></div>
+                    <div class="gm-row">材质浓度<div class="bar"><i style="width:48%"></i></div></div>
+                    <div class="gm-row">模糊半径<div class="bar"><i style="width:60%"></i></div></div>
+                  </div>
+                  <div class="gm-row danger"><svg><use href="#i-power"/></svg>退出</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="formula-band" data-rv>
+        <div>
+          <p class="fb-label">同一个公式，四种性格</p>
+          <p class="fb-eq">|x|<sup class="v" id="fbN1">3</sup> + |y|<sup class="v" id="fbN2">3</sup> = 1</p>
+          <p class="fb-note" id="fbNote">n = 2 是圆，n 越大越方。3 是它们之间的黄金位置 —— 图标与整套界面都取这一档。</p>
+          <p class="fb-hint">点形状切换 · 同一个半径，只改幂次</p>
+        </div>
+        <div class="fb-shapes" id="fbShapes">
+          <button class="fbs" data-n="2" aria-pressed="false" aria-label="n 等于 2"><svg viewBox="0 0 76 76"></svg><span>n = 2 · 圆</span></button>
+          <button class="fbs" data-n="3" aria-pressed="true" aria-label="n 等于 3"><svg viewBox="0 0 76 76"></svg><span>n = 3 · 现在</span></button>
+          <button class="fbs" data-n="4" aria-pressed="false" aria-label="n 等于 4"><svg viewBox="0 0 76 76"></svg><span>n = 4 · 更方</span></button>
+          <button class="fbs" data-n="8" aria-pressed="false" aria-label="n 等于 8"><svg viewBox="0 0 76 76"></svg><span>n = 8 · 近方</span></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= GLASS (light) ================= -->
+  <section class="section" id="glass" data-theme="light">
+    <div class="wrap glass-grid">
+      <div data-rv>
+        <p class="eyebrow">毛玻璃</p>
+        <h2>玻璃不是蒙版<em>是对背后的一次采样</em></h2>
+        <p class="lede">拖动下面两个滑条。真正的毛玻璃会随背后的颜色变，而一层半透明白只会把一切都冲淡。</p>
+
+        <div class="controls">
+          <div class="ctl">
+            <span>透明度</span>
+            <input id="gAlpha" type="range" min="30" max="100" value="62" aria-label="透明度" />
+            <output id="gAlphaOut" class="num">62%</output>
+          </div>
+          <div class="ctl">
+            <span>模糊半径</span>
+            <input id="gBlur" type="range" min="0" max="40" value="18" aria-label="模糊半径" />
+            <output id="gBlurOut" class="num">18</output>
+          </div>
+          <div class="ctl" style="grid-template-columns:64px 1fr;">
+            <span>主题</span>
+            <div class="segment" id="gTheme">
+              <button aria-pressed="true" data-mode="light">浅色</button>
+              <button aria-pressed="false" data-mode="dark">深色</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div data-rv data-d="1">
+        <div class="win">
+          <div class="win-bg"></div>
+          <div class="glass-demo" id="glassDemo">
+            <div class="gi"><img src="assets/icon-256.png" alt="" /></div>
+            <div>
+              <div class="gt">回收站</div>
+              <div class="gm num">128 项 · 1.24 GB</div>
+            </div>
+          </div>
+        </div>
+        <ul class="glass-notes" style="margin-top:26px">
+          <li><span class="n">01</span><div><h3>壁纸取样</h3><p>读当前壁纸做高斯模糊再取色，多屏按填充 / 适应 / 居中 / 平铺各自匹配。</p></div></li>
+          <li><span class="n">02</span><div><h3>1px 边光 + 连续光晕</h3><p>细线做高斯得到光晕，用卡片自身圆角掩码裁掉外侧，只往内扩散。</p></div></li>
+          <li><span class="n">03</span><div><h3>垂直衰减</h3><p>乘一条 <code>e<sup>−5.5·y/h</sup></code>，顶边极亮，越往下越柔，没有台阶。</p></div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= MICRO ================= -->
+  <section class="section" id="micro" data-theme="dark">
+    <div class="wrap">
+      <div data-rv style="max-width:640px">
+        <p class="eyebrow">微交互</p>
+        <h2>每一下操作<em>都有回应，但不过分</em></h2>
+        <p class="lede">动效只做一件事：确认你点到了。所以时间短、曲线克制，进出对称。下面三个都可以直接上手。</p>
+      </div>
+
+      <div class="micro-grid">
+        <div class="micro" data-rv>
+          <div class="micro-head"><h3>悬停交叉淡入</h3><span class="t num">160ms</span></div>
+          <div class="micro-stage">
+            <div class="hovercard">
+              <div class="hi"><img src="assets/icon-64.png" alt="" /></div>
+              <div class="ht">
+                <div class="hname">回收站</div>
+                <div class="hline">
+                  <div class="hmeta num">128 项 · 1.24 GB</div>
+                  <div class="hact"><span>打开</span><span class="w">清空</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="micro" data-rv data-d="1">
+          <div class="micro-head"><h3>面板揭示</h3><span class="t num">200ms</span></div>
+          <div class="micro-stage">
+            <div class="panel-demo" id="panelDemo">
+              <div class="row"><svg><use href="#i-folder"/></svg>打开回收站</div>
+              <div class="row"><svg><use href="#i-trash"/></svg>清空回收站</div>
+              <div class="row" id="panelToggle" style="cursor:pointer">
+                <svg><use href="#i-sliders"/></svg>外观设置
+                <svg class="chev"><use href="#i-chev"/></svg>
+              </div>
+              <div class="sub">
+                <div class="row">透明度<div class="bar"><i style="width:92%"></i></div></div>
+                <div class="row">材质浓度<div class="bar"><i style="width:48%"></i></div></div>
+                <div class="row">模糊半径<div class="bar"><i style="width:60%"></i></div></div>
+              </div>
+              <div class="row"><svg><use href="#i-power"/></svg>退出</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="micro" data-rv data-d="2">
+          <div class="micro-head"><h3>拖放回收</h3><span class="t">drag / drop</span></div>
+          <div class="micro-stage">
+            <div class="dropzone" id="dropzone">
+              <div>
+                <svg class="dz-ico"><use href="#i-plus"/></svg>
+                <span id="dzText">把文件拖进来<br />或点一下试试</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SPEC ================= -->
+  <section class="section" id="spec" data-theme="dark">
+    <div class="wrap">
+      <div data-rv style="max-width:640px">
+        <p class="eyebrow">规格与实测</p>
+        <h2>好看的背后<em>是界面永不阻塞</em></h2>
+      </div>
+
+      <div class="spec-wrap">
+        <div class="spec" data-rv>
+          <div class="n num">22–66<em>ms</em></div>
+          <div class="l">点击「清空」到面板打开，连续 4 次全部命中</div>
+        </div>
+        <div class="spec" data-rv data-d="1">
+          <div class="n num">0<em>%</em></div>
+          <div class="l">空闲 CPU 占用 · 消息循环阻塞等待，不再轮询</div>
+        </div>
+        <div class="spec" data-rv data-d="2">
+          <div class="n num">19,261<em>项</em></div>
+          <div class="l">回收站装满时，界面仍可拖放与点击</div>
+        </div>
+      </div>
+
+      <table class="cmp" data-rv>
+        <thead><tr><th>场景</th><th>改之前</th><th></th><th>改之后</th></tr></thead>
+        <tbody>
+          <tr><td>回收站查询</td><td class="b">UI 线程同步调用，单次 15 秒</td><td class="ar">→</td><td class="a">后台线程，自适应 4s–120s</td></tr>
+          <tr><td>点击「清空」</td><td class="b">排在查询后面，落空或等十几秒</td><td class="ar">→</td><td class="a">独立队列，22–66ms</td></tr>
+          <tr><td>清空过程</td><td class="b">只显示秒表，像卡死</td><td class="ar">→</td><td class="a">每 4 秒复核，显示剩余项数</td></tr>
+          <tr><td>清空结果</td><td class="b">信 HRESULT，成功也报失败</td><td class="ar">→</td><td class="a">重新查询复核，三态判定</td></tr>
+          <tr><td>消息循环</td><td class="b">PeekMessage + sleep 轮询</td><td class="ar">→</td><td class="a">GetMessageW 阻塞，0 占用</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= DOWNLOAD ================= -->
+  <section class="section" id="download" data-theme="dark" style="padding-top:0">
+    <div class="wrap">
+      <div class="dl-card" data-rv>
+        <div class="dl-left">
+          <img class="dl-icon" src="assets/icon-256.png" alt="RecycleGlass 图标" />
+          <div>
+            <div class="dl-title">RecycleGlass <span style="color:var(--muted-2);font-weight:500">3.1.0</span></div>
+            <p class="dl-sub">单文件，绿色免安装。双击就能用，不需要 Python 或任何运行时。</p>
+            <div class="dl-meta">
+              <span>Windows 10 2004+ / 11</span><i></i><span class="num">15.6 MB</span><i></i><span>MIT</span>
+            </div>
+            <p style="margin:12px 0 0;font-size:11.5px;line-height:1.7;color:var(--muted-2)">配置存于 <code>%APPDATA%\RecycleGlass\</code>，日志同目录 <code>logs\</code>。</p>
+          </div>
+        </div>
+        <div class="dl-btns">
+          <a class="btn btn-p" href="https://github.com/3335957485wyf-spec/RecycleGlass/releases/latest" target="_blank" rel="noopener"><svg><use href="#i-dl"/></svg>从 GitHub 下载</a>
+          <a class="btn btn-g" href="https://github.com/3335957485wyf-spec/RecycleGlass" target="_blank" rel="noopener">查看源码<svg><use href="#i-arrow"/></svg></a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <div class="fbrand"><img src="assets/icon-64.png" alt="" />RecycleGlass</div>
+      <p class="fnote">MIT © 2026 氦-3 · 图标几何来自 Lucide（ISC）· 形变算法参考 morphicons（MIT，仅生成阶段使用）<br />本页为产品的视觉说明，所有数值取自 3.1.0 的实测记录。</p>
+    </div>
+    <div class="flinks">
+      <a href="https://github.com/3335957485wyf-spec/RecycleGlass" target="_blank" rel="noopener">GitHub</a>
+      <a href="#radius">几何</a>
+      <a href="#glass">材质</a>
+      <a href="#download">下载</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var nav = document.getElementById("nav");
+  var prog = document.getElementById("prog");
+  var sections = [].slice.call(document.querySelectorAll("[data-theme]"));
+
+  /* ---- scroll: nav theme + progress + 3D ---- */
+  function onScroll(){
+    var y = window.pageYOffset || document.documentElement.scrollTop;
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    prog.style.width = (h > 0 ? Math.min(100, (y / h) * 100) : 0) + "%";
+    nav.classList.toggle("stuck", y > 24);
+
+    var mid = y + 64;
+    var cur = sections[0];
+    for (var i = 0; i < sections.length; i++){
+      if (sections[i].offsetTop <= mid) cur = sections[i];
+    }
+    nav.classList.toggle("on-light", cur.getAttribute("data-theme") === "light");
+    paintGeo();
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll);
+
+  /* ---- reveal ---- */
+  var rv = [].slice.call(document.querySelectorAll("[data-rv]"));
+  function reveal(){
+    var vh = window.innerHeight || 800;
+    for (var i = rv.length - 1; i >= 0; i--){
+      if (rv[i].getBoundingClientRect().top < vh * 0.88){
+        rv[i].classList.add("in");
+        rv.splice(i, 1);
+      }
+    }
+  }
+  window.addEventListener("scroll", reveal, { passive: true });
+  window.addEventListener("resize", reveal);
+  window.addEventListener("load", reveal);
+  reveal();
+
+  /* ---- hero 3D parallax ---- */
+  var stage = document.getElementById("stage");
+  var inner = document.getElementById("stageInner");
+  var tx = 0, ty = 0, cx = 0, cy = 0, raf = null;
+
+  function loop(){
+    cx += (tx - cx) * 0.12;
+    cy += (ty - cy) * 0.12;
+    inner.style.setProperty("--ry", cx.toFixed(2) + "deg");
+    inner.style.setProperty("--rx", cy.toFixed(2) + "deg");
+    if (Math.abs(tx - cx) > 0.01 || Math.abs(ty - cy) > 0.01) raf = requestAnimationFrame(loop);
+    else raf = null;
+  }
+  function kick(){ if (!raf) raf = requestAnimationFrame(loop); }
+
+  if (stage && !reduce && window.matchMedia("(pointer:fine)").matches){
+    stage.addEventListener("pointermove", function(e){
+      var r = stage.getBoundingClientRect();
+      tx = ((e.clientX - r.left) / r.width - 0.5) * 12;
+      ty = -((e.clientY - r.top) / r.height - 0.5) * 8;
+      if (heroCard){
+        var c = heroCard.getBoundingClientRect();
+        heroCard.style.setProperty("--px", (((e.clientX - c.left) / c.width) * 100).toFixed(1) + "%");
+        heroCard.style.setProperty("--py", (((e.clientY - c.top) / c.height) * 100).toFixed(1) + "%");
+        var inside = e.clientX >= c.left && e.clientX <= c.right && e.clientY >= c.top && e.clientY <= c.bottom;
+        heroCard.classList.toggle("hv", inside);
+      }
+      kick();
+    });
+    stage.addEventListener("pointerleave", function(){
+      tx = 0; ty = 0; if (heroCard) heroCard.classList.remove("hv"); kick();
+    });
+  }
+
+  /* ---- hero card hover ---- */
+  var heroCard = document.getElementById("heroCard");
+  if (heroCard){
+    heroCard.addEventListener("pointerenter", function(){ heroCard.classList.add("hv"); });
+    heroCard.addEventListener("pointerleave", function(){ heroCard.classList.remove("hv"); });
+  }
+
+  /* ---- superellipse geometry ---- */
+  function squirclePath(w, h, r, n, ox, oy){
+    var e = 2 / n, steps = 18, pts = [];
+    function arc(cx, cy, sx, sy, t0, t1){
+      for (var i = 0; i <= steps; i++){
+        var t = t0 + (t1 - t0) * i / steps;
+        var u = Math.pow(Math.abs(Math.cos(t)), e);
+        var v = Math.pow(Math.abs(Math.sin(t)), e);
+        pts.push([cx + sx * r * u, cy + sy * r * v]);
+      }
+    }
+    arc(ox + r, oy + r, -1, -1, Math.PI / 2, 0);
+    pts.push([ox, oy + h - r]);
+    arc(ox + r, oy + h - r, -1, 1, 0, Math.PI / 2);
+    pts.push([ox + w - r, oy + h]);
+    arc(ox + w - r, oy + h - r, 1, 1, Math.PI / 2, 0);
+    pts.push([ox + w, oy + r]);
+    arc(ox + w - r, oy + r, 1, -1, 0, Math.PI / 2);
+    pts.push([ox + r, oy]);
+    return "M" + pts.map(function(q){ return q[0].toFixed(2) + " " + q[1].toFixed(2); }).join("L") + "Z";
+  }
+
+  function clipSquircle(el, r){
+    if (!el) return;
+    var w = el.offsetWidth, h = el.offsetHeight;
+    if (!w || !h) return;
+    var d = 'path("' + squirclePath(w, h, r, 3, 0, 0) + '")';
+    el.style.webkitClipPath = d;
+    el.style.clipPath = d;
+  }
+
+  /* ---- sticky 3D: card → menu → expand ---- */
+  var track = document.getElementById("geoTrack");
+  var gsCard = document.getElementById("gsCard");
+  var gsMenu = document.getElementById("gsMenu");
+  var gmSub = document.getElementById("gmSub");
+  var gmChev = document.getElementById("gmChev");
+  var gsScale = document.getElementById("gsScale");
+  var stepEls = [].slice.call(document.querySelectorAll("#geoSteps .step"));
+  var menuClipH = 0;
+  var narrow = false;
+
+  function clamp01(v){ return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function easeOut(t){ return 1 - Math.pow(1 - t, 3); }
+  function lerp(a, b, t){ return a + (b - a) * t; }
+
+  function layoutGeo(){
+    narrow = window.innerWidth <= 1020;
+    if (gsScale){
+      var scene = gsScale.parentElement;
+      var k = narrow ? 1 : Math.min(1, (scene.clientWidth - 26) / 700);
+      gsScale.style.setProperty("--s", k.toFixed(3));
+    }
+    clipSquircle(gsCard && gsCard.querySelector(".gs-surface"), 28);
+    clipSquircle(gsMenu && gsMenu.querySelector(".gs-surface"), 15);
+  }
+
+  function paintGeo(){
+    if (!track || !gsCard || !gsMenu) return;
+    var vh = window.innerHeight;
+    var top = track.getBoundingClientRect().top;
+    var total = track.offsetHeight - vh;
+    var p = clamp01(total > 0 ? (-top) / total : 0);
+
+    var p1 = easeOut(clamp01(p / 0.30));
+    var p2 = easeOut(clamp01((p - 0.30) / 0.34));
+    var p3 = easeOut(clamp01((p - 0.68) / 0.32));
+
+    var cy = lerp(10, 0, p1) - 16 * p2;
+    var cz = lerp(-140, 0, p1) - 70 * p2;
+    var rx = lerp(16, 5, p1) - 5 * p2;
+    var ry = lerp(-32, -3, p1) + 3 * p2;
+    var sc = lerp(0.94, 1, p1) - 0.04 * p2;
+    var cardX = narrow ? 0 : -90;
+    if (narrow) cy -= 92;
+    gsCard.style.transform = "translate(-50%,-50%) translate3d(" + cardX + "px," + cy.toFixed(2) + "px," + cz.toFixed(2) +
+      "px) rotateX(" + rx.toFixed(2) + "deg) rotateY(" + ry.toFixed(2) + "deg) scale(" + sc.toFixed(3) + ")";
+    gsCard.style.opacity = (0.12 + 0.88 * p1).toFixed(3);
+
+    var mx = narrow ? lerp(-16, 30, p2) : lerp(-30, 178, p2);
+    var my = narrow ? lerp(24, 40, p2) : lerp(30, 0, p2);
+    var ms = narrow ? 0.88 : 1;
+    var mz = lerp(-160, 90, p2);
+    var mry = lerp(-18, -3, p2);
+    var mrx = lerp(12, 0, p2);
+    gsMenu.style.transform = "translate3d(calc(-50% + " + mx.toFixed(2) + "px)," + my.toFixed(2) +
+      "px," + mz.toFixed(2) + "px) rotateX(" + mrx.toFixed(2) + "deg) rotateY(" + mry.toFixed(2) + "deg) scale(" + ms + ")";
+    gsMenu.style.opacity = p2.toFixed(3);
+
+    gmSub.style.maxHeight = (p3 * 112).toFixed(1) + "px";
+    gmChev.style.transform = "rotate(" + (p3 * 90).toFixed(1) + "deg)";
+
+    var surf = gsMenu.querySelector(".gs-surface");
+    if (surf && surf.offsetHeight !== menuClipH){
+      menuClipH = surf.offsetHeight;
+      clipSquircle(surf, 15);
+    }
+
+    var active = p < 0.34 ? 0 : (p < 0.68 ? 1 : 2);
+    for (var i = 0; i < stepEls.length; i++) stepEls[i].classList.toggle("on", i === active);
+  }
+
+  /* ---- formula band ---- */
+  var fbShapes = document.getElementById("fbShapes");
+  var fbN1 = document.getElementById("fbN1");
+  var fbN2 = document.getElementById("fbN2");
+  var fbNote = document.getElementById("fbNote");
+  var FB_NOTES = {
+    "2": "n = 2 就是圆：过渡最软，但做卡片会显得没有边界，也撑不起信息。",
+    "3": "n = 3 —— 图标与整套界面都取这一档：比圆更有支撑，比方更柔和。",
+    "4": "n = 4 开始显方：边缘更挺，适合更小、更密的信息块。",
+    "8": "n = 8 几乎就是矩形：只剩一点柔化，接近表格格线的性格。"
+  };
+
+  if (fbShapes){
+    [].forEach.call(fbShapes.querySelectorAll(".fbs"), function(btn){
+      var n = parseFloat(btn.dataset.n);
+      var svg = btn.querySelector("svg");
+      var d = squirclePath(76, 76, 26, n, 0, 0);
+      var mk = function(cls){
+        var el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        el.setAttribute("d", d);
+        el.setAttribute("class", cls);
+        return el;
+      };
+      var fill = mk("p-fill");
+      fill.setAttribute("fill", "url(#fbGrad)");
+      var line = mk("p-line");
+      line.setAttribute("fill", "none");
+      line.setAttribute("stroke", "rgba(255,255,255,.34)");
+      line.setAttribute("stroke-width", "1.2");
+      svg.appendChild(fill);
+      svg.appendChild(line);
+
+      btn.addEventListener("click", function(){
+        [].forEach.call(fbShapes.querySelectorAll(".fbs"), function(b){
+          b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+        });
+        fbN1.textContent = n;
+        fbN2.textContent = n;
+        fbNote.textContent = FB_NOTES[String(n)] || "";
+      });
+    });
+  }
+
+  /* ---- glass lab ---- */
+  var gAlpha = document.getElementById("gAlpha");
+  var gBlur = document.getElementById("gBlur");
+  var gAOut = document.getElementById("gAlphaOut");
+  var gBOut = document.getElementById("gBlurOut");
+  var gDemo = document.getElementById("glassDemo");
+  var gTheme = document.getElementById("gTheme");
+  var gMeta = gDemo ? gDemo.querySelector(".gm") : null;
+
+  function paintGlass(){
+    var a = gAlpha.value / 100;
+    var blur = gBlur.value;
+    var dark = gTheme.querySelector('[aria-pressed="true"]').dataset.mode === "dark";
+    var base = dark ? "18,18,26" : "255,255,255";
+    var alpha = dark ? (0.16 + a * 0.62) : (a * 0.72);
+    gDemo.style.setProperty("--glass-bg", "rgba(" + base + "," + alpha.toFixed(3) + ")");
+    gDemo.style.setProperty("--glass-blur", blur + "px");
+    gDemo.style.borderColor = dark ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.55)";
+    gDemo.style.color = dark ? "#f2f2f7" : "#12121a";
+    gMeta.style.color = dark ? "rgba(242,242,247,.6)" : "rgba(20,20,30,.62)";
+    gAOut.textContent = gAlpha.value + "%";
+    gBOut.textContent = blur;
+  }
+  if (gAlpha){
+    gAlpha.addEventListener("input", paintGlass);
+    gBlur.addEventListener("input", paintGlass);
+    gTheme.addEventListener("click", function(e){
+      var b = e.target.closest("button");
+      if (!b) return;
+      [].forEach.call(gTheme.children, function(x){ x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      paintGlass();
+    });
+    paintGlass();
+  }
+
+  /* ---- panel demo ---- */
+  var panelToggle = document.getElementById("panelToggle");
+  var panelDemo = document.getElementById("panelDemo");
+  if (panelToggle){
+    panelToggle.addEventListener("click", function(){
+      panelDemo.classList.toggle("open");
+      panelToggle.querySelector(".chev").style.transform = panelDemo.classList.contains("open") ? "rotate(90deg)" : "";
+    });
+  }
+
+  /* ---- drop demo ---- */
+  var dz = document.getElementById("dropzone");
+  var dzText = document.getElementById("dzText");
+  if (dz){
+    ["dragenter", "dragover"].forEach(function(t){
+      dz.addEventListener(t, function(e){ e.preventDefault(); dz.classList.add("over"); });
+    });
+    ["dragleave", "drop"].forEach(function(t){
+      dz.addEventListener(t, function(e){ e.preventDefault(); dz.classList.remove("over"); });
+    });
+    dz.addEventListener("drop", function(){ done(); });
+    dz.addEventListener("click", function(){ if (!dz.classList.contains("done")) done(); });
+    function done(){
+      dz.classList.add("done");
+      dzText.innerHTML = "已放入回收站<br /><span class=\"num\">129 项 · 1.25 GB</span>";
+      setTimeout(function(){
+        dz.classList.remove("done");
+        dzText.innerHTML = "把文件拖进来<br />或点一下试试";
+      }, 1900);
+    }
+  }
+
+  /* ---- magnetic buttons ---- */
+  if (!reduce && window.matchMedia("(pointer:fine)").matches){
+    [].forEach.call(document.querySelectorAll(".btn"), function(btn){
+      btn.addEventListener("pointermove", function(e){
+        var r = btn.getBoundingClientRect();
+        var dx = (e.clientX - (r.left + r.width / 2)) / r.width;
+        var dy = (e.clientY - (r.top + r.height / 2)) / r.height;
+        btn.style.transform = "translate(" + (dx * 4).toFixed(2) + "px," + (dy * 3).toFixed(2) + "px)";
+      });
+      btn.addEventListener("pointerleave", function(){ btn.style.transform = ""; });
+    });
+  }
+
+  layoutGeo();
+  window.addEventListener("resize", layoutGeo);
+  window.addEventListener("load", function(){ layoutGeo(); paintGeo(); });
+  setTimeout(layoutGeo, 300);
+  onScroll();
+  paintGeo();
+})();
+</script>
+</body>
+</html>

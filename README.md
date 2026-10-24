@@ -6,10 +6,13 @@
 
 双击打开 · 拖放回收 · 右键即设置
 
+[官网与下载](https://3335957485wyf-spec.github.io/RecycleGlass/) · [更新日志](CHANGELOG.md)
+
 ![Platform](https://img.shields.io/badge/Windows-10%202004%2B%20%7C%2011-0078D6)
-![Version](https://img.shields.io/badge/version-3.0.0-6E8BFF)
+![Version](https://img.shields.io/badge/version-3.1.0-6E8BFF)
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
-![Size](https://img.shields.io/badge/exe-16%20MB-8A8F98)
+![Size](https://img.shields.io/badge/exe-15.6%20MB-8A8F98)
+![Website](https://img.shields.io/badge/website-3335957485wyf--spec.github.io%2FRecycleGlass-9AA6FF)
 
 <img src="docs/images/hero.png" width="900" alt="RecycleGlass 卡片：浅色与深色">
 
