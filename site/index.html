@@ -206,28 +206,43 @@
   .chip-b{left:5%;top:73%;transform:translateZ(40px) rotate(1.5deg)}
   .chip .k{width:6px;height:6px;border-radius:2px;background:var(--b2)}
 
-  /* ============ geometry: sticky 3D ============ */
+  /* ============ geometry: scroll story ============ */
   .geometry{overflow:visible}
-  .geo-head{max-width:700px;margin:0 auto clamp(26px,3.4vw,44px);text-align:center}
+  .geo-head{max-width:760px;margin:0 auto clamp(18px,2.6vw,34px);text-align:center}
   .geo-head .lede{margin-left:auto;margin-right:auto}
-  .geo-track{position:relative;height:330vh}
-  .geo-sticky{position:sticky;top:0;height:100svh;display:flex;align-items:center;overflow:hidden}
-  .geo-grid{display:grid;grid-template-columns:.38fr .62fr;gap:clamp(24px,4vw,56px);align-items:center;width:100%}
-  .geo-steps{display:flex;flex-direction:column;gap:26px;max-width:320px}
-  .step{position:relative;padding-left:20px;opacity:.28;transition:opacity .55s var(--ease)}
-  .step::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:2px;border-radius:2px;background:rgba(255,255,255,.14);transition:background .55s var(--ease)}
-  .step.on{opacity:1}
-  .step.on::before{background:linear-gradient(180deg,var(--b1),var(--b3))}
-  .step .n{font-size:10.5px;letter-spacing:.18em;color:var(--b2);font-weight:600}
-  .step h3{margin:7px 0 6px;font-size:16px;font-weight:650;letter-spacing:-.01em;display:flex;align-items:baseline;gap:8px}
-  .step h3 b{color:var(--b1);font-weight:650;font-size:13.5px}
-  .step p{margin:0;font-size:12.5px;line-height:1.7;color:var(--muted)}
+  .geo-head .lede br{display:none}
+  @media (min-width:760px){ .geo-head .lede br{display:inline} }
 
-  .geo-scene{position:relative;height:clamp(340px,42vw,460px);perspective:1500px;perspective-origin:52% 48%}
+  .geo-track{position:relative;height:460vh}
+  .geo-sticky{position:sticky;top:0;height:100svh;display:flex;align-items:center;overflow:hidden}
+  .geo-grid{display:grid;grid-template-columns:.40fr .60fr;gap:clamp(14px,3vw,48px);align-items:center;width:100%}
+
+  /* ---- steps: stacked, scroll-driven, they fly into the scene ---- */
+  .geo-steps{position:relative;height:290px;max-width:360px}
+  .step{
+    position:absolute;left:0;top:50%;width:100%;margin-top:-70px;padding-left:24px;
+    will-change:transform,opacity,filter;transform-origin:0 60%;
+    opacity:0;filter:blur(6px);
+  }
+  .step::before{
+    content:"";position:absolute;left:0;top:3px;bottom:3px;width:2px;border-radius:2px;
+    background:linear-gradient(180deg,var(--b1),var(--b3));opacity:.0;transition:opacity .3s linear;
+  }
+  .step.live::before{opacity:.9}
+  .step .n{font-size:10.5px;letter-spacing:.22em;color:var(--b2);font-weight:600}
+  .step h3{
+    margin:9px 0 10px;font-size:clamp(20px,1.75vw,27px);font-weight:660;
+    letter-spacing:-.025em;line-height:1.16;
+  }
+  .step h3 b{color:var(--b1);font-weight:660}
+  .step p{margin:0;font-size:13px;line-height:1.78;color:var(--muted);max-width:310px}
+
+  /* ---- scene ---- */
+  .geo-scene{position:relative;height:clamp(390px,48vw,560px);perspective:1500px;perspective-origin:52% 48%}
   .geo-scene::before{
-    content:"";position:absolute;left:8%;top:12%;width:86%;height:76%;pointer-events:none;
-    background:radial-gradient(closest-side,rgba(120,145,255,.20),rgba(120,145,255,.06) 55%,transparent 74%);
-    filter:blur(30px);
+    content:"";position:absolute;left:6%;top:10%;width:90%;height:80%;pointer-events:none;
+    background:radial-gradient(closest-side,rgba(120,145,255,.22),rgba(120,145,255,.06) 55%,transparent 74%);
+    filter:blur(32px);
   }
   .geo-scene::after{
     content:"";position:absolute;inset:-6% -4%;pointer-events:none;z-index:-1;
@@ -235,10 +250,10 @@
     background-size:26px 26px;
     -webkit-mask-image:radial-gradient(70% 70% at 50% 46%,#000 20%,transparent 78%);
     mask-image:radial-gradient(70% 70% at 50% 46%,#000 20%,transparent 78%);
-    opacity:.5;
+    opacity:.5;transform:translate3d(0,var(--gpy,0px),0);
   }
   .gs-scale{position:absolute;inset:0;transform:scale(var(--s,1));transform-style:preserve-3d}
-  .gs-item{position:absolute;left:50%;top:50%;transform-style:preserve-3d;will-change:transform}
+  .gs-item{position:absolute;left:50%;top:50%;transform-style:preserve-3d;will-change:transform,opacity}
   .gs-surface{
     position:relative;border:1px solid rgba(255,255,255,.15);
     background-color:rgba(30,32,46,.62);
@@ -248,17 +263,18 @@
       linear-gradient(158deg,rgba(255,255,255,.16),rgba(255,255,255,.04) 56%,rgba(255,255,255,.09));
     box-shadow:inset 0 1px 0 rgba(255,255,255,.20),inset 0 -30px 60px -44px rgba(157,189,254,.5);
     backdrop-filter:blur(22px) saturate(1.6);-webkit-backdrop-filter:blur(22px) saturate(1.6);
+    transition:box-shadow .45s var(--ease);
   }
-  .gs-card{filter:drop-shadow(0 34px 46px rgba(0,0,0,.55))}
-  .gs-menu{filter:drop-shadow(0 30px 50px rgba(0,0,0,.6))}
-  .gs-card{width:min(440px,88vw);opacity:.12}
-  .gs-card .gs-surface{border-radius:28px;padding:20px 22px;display:flex;align-items:center;gap:16px}
+  .gs-card{width:min(496px,90vw);filter:drop-shadow(0 34px 46px rgba(0,0,0,.55));opacity:0}
+  .gs-menu{width:min(346px,76vw);top:50%;margin-top:-46px;opacity:0;filter:drop-shadow(0 30px 50px rgba(0,0,0,.6))}
+  .gs-card .gs-surface{border-radius:28px;padding:22px 24px;display:flex;align-items:center;gap:16px}
   .gs-card .gi{width:56px;height:56px;flex:0 0 56px;display:grid;place-items:center;filter:drop-shadow(0 6px 14px rgba(90,110,220,.5))}
   .gs-card .gi img{width:56px;height:56px}
   .gs-card .gt{font-size:19px;font-weight:650;letter-spacing:-.01em}
   .gs-card .gm{font-size:13.5px;color:rgba(255,255,255,.74);margin-top:3px}
+  .gs-card.lit .gs-surface{box-shadow:inset 0 1px 0 rgba(255,255,255,.24),0 0 0 1.5px rgba(150,175,255,.55),0 0 40px -6px rgba(120,145,255,.45)}
+  .gs-menu.lit .gs-surface{box-shadow:0 0 0 1.5px rgba(150,175,255,.5),0 0 34px -8px rgba(120,145,255,.4)}
 
-  .gs-menu{width:min(312px,74vw);top:50%;margin-top:-46px;opacity:0}
   .gs-menu .gs-surface{border-radius:15px;overflow:hidden;background-color:rgba(20,21,32,.96);background-image:linear-gradient(170deg,rgba(56,58,82,.55),rgba(18,19,30,.35))}
   .gm-head{display:flex;align-items:center;gap:10px;padding:13px 14px 11px}
   .gm-head .mi{width:36px;height:36px;display:grid;place-items:center;filter:drop-shadow(0 5px 12px rgba(120,140,255,.5))}
@@ -267,59 +283,148 @@
   .gm-head .ms{font-size:11px;color:var(--muted);margin-top:2px}
   .gm-row{display:flex;align-items:center;gap:9px;padding:10px 14px;font-size:12.5px;border-top:1px solid rgba(255,255,255,.06)}
   .gm-row svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
-  .gm-row .chev{margin-left:auto;opacity:.45;transition:transform .3s var(--ease)}
+  .gm-row .chev{margin-left:auto;opacity:.45}
   .gm-row.danger{color:#ffb4b4}
-  .gm-row.on{background:rgba(255,255,255,.07)}
-  .gm-sub{max-height:0;overflow:hidden;background:rgba(0,0,0,.18);transition:max-height .3s var(--ease)}
-  .gm-sub .gm-row{border-top:1px solid rgba(255,255,255,.05);font-size:11.5px;color:var(--muted);padding:8px 14px 8px 30px}
-  .gm-sub .bar{height:2px;border-radius:2px;background:rgba(255,255,255,.14);flex:1;max-width:64px;margin-left:auto;position:relative;overflow:hidden}
-  .gm-sub .bar i{position:absolute;inset:0 auto 0 0;background:var(--b1);border-radius:2px}
+  .gm-row.on{background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(150,175,255,.22)}
+  .gm-sub{max-height:0;overflow:hidden;background:rgba(0,0,0,.18)}
+  .gm-sub .gm-row{border-top:1px solid rgba(255,255,255,.05);font-size:12px;color:rgba(255,255,255,.56);padding:8px 14px 8px 30px}
+  .gm-sub .bar{height:3px;border-radius:3px;background:rgba(255,255,255,.16);flex:1;max-width:72px;margin-left:auto;position:relative;overflow:hidden}
+  .gm-sub .bar i{position:absolute;inset:0 auto 0 0;width:100%;background:linear-gradient(90deg,#9dbdfe,#c3b6ff);border-radius:3px;transform-origin:0 50%;transform:scaleX(0);box-shadow:0 0 8px rgba(157,189,254,.6)}
 
-  /* formula band */
-  .formula-band{
-    margin-top:clamp(36px,5vw,64px);padding:clamp(26px,3.4vw,40px);
-    border-radius:24px;border:1px solid var(--line);
-    background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));
-    display:grid;grid-template-columns:1fr auto;gap:clamp(24px,4vw,56px);align-items:center;
+  /* ---- flying corner tag ---- */
+  .corner-tag{
+    position:absolute;display:inline-flex;align-items:center;gap:6px;z-index:4;
+    padding:6px 11px 6px 9px;border-radius:10px;
+    font-size:12px;font-weight:680;letter-spacing:.03em;white-space:nowrap;pointer-events:none;
+    color:#0a0b12;background:linear-gradient(180deg,#dde4ff,#b3bdff);
+    box-shadow:0 10px 22px -12px rgba(120,145,255,.95),inset 0 1px 0 rgba(255,255,255,.6);
+    opacity:0;transform:scale(.62) translate3d(0,10px,60px);transform-origin:0 100%;
   }
-  .fb-label{margin:0 0 14px;font-size:11.5px;letter-spacing:.16em;color:var(--b2);font-weight:600;text-transform:uppercase}
-  .fb-eq{
-    margin:0;font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
-    font-size:clamp(24px,3vw,34px);letter-spacing:-.01em;color:#fff;line-height:1.1;
+  .corner-tag svg{width:14px;height:14px;display:block}
+  .corner-tag::after{
+    content:"";position:absolute;left:11px;bottom:-12px;width:1px;height:12px;
+    background:linear-gradient(180deg,rgba(179,189,255,.95),rgba(179,189,255,0));
   }
-  .fb-eq .v{color:var(--b1);font-size:.72em;vertical-align:super;transition:color .25s}
-  .fb-hint{margin:10px 0 0;font-size:11px;letter-spacing:.04em;color:rgba(247,247,251,.26)}
-  .fb-note{margin:14px 0 0;font-size:12.5px;line-height:1.75;color:var(--muted-2);max-width:420px}
-  .fb-shapes{display:flex;gap:12px}
-  .fbs{
+  .tag-card{left:-8px;top:-32px}
+  .tag-menu{left:-12px;top:-32px}
+  .tag-row{right:-16px;top:152px}
+  .tag-row::after{display:none}
+
+  /* ---- figure block ---- */
+  .fig-block{
+    margin-top:clamp(40px,5.4vw,84px);
+    display:grid;grid-template-columns:1.19fr .81fr;gap:clamp(24px,3.6vw,54px);align-items:center;
+  }
+  .fig-wrap{
+    position:relative;border-radius:24px;border:1px solid var(--line);
+    padding:clamp(10px,1.6vw,18px) clamp(10px,1.6vw,18px) clamp(30px,3vw,36px);
+    background:
+      radial-gradient(120% 130% at 28% 14%,rgba(120,145,255,.10),transparent 60%),
+      linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
+    overflow:hidden;
+  }
+  .fig-wrap svg{width:100%;height:auto;display:block;overflow:visible}
+  .fig-cap{
+    position:absolute;left:clamp(14px,1.8vw,20px);bottom:12px;
+    font-size:11px;letter-spacing:.04em;color:rgba(247,247,251,.30);
+  }
+  .fig-spoke{stroke:rgba(255,255,255,.10);stroke-width:1.1;opacity:0;transition:opacity .5s linear}
+  .fig-grid{stroke:rgba(255,255,255,.062);stroke-width:1.1}
+  .fig-curve{fill:none;stroke:rgba(255,255,255,.42);stroke-width:1.6;opacity:0;transition:opacity .55s var(--ease),stroke .3s}
+  .fig-curve.dim{stroke:rgba(255,255,255,.18)}
+  .fig-curve.act{stroke:rgba(226,234,255,.98);stroke-width:2.1}
+  .fig-live{fill:none;stroke:url(#figGrad);stroke-width:2.8;stroke-linecap:round;filter:drop-shadow(0 0 6px rgba(140,165,255,.75))}
+  .fig-lead{stroke:rgba(255,255,255,.26);stroke-width:1.3;fill:none}
+  .fig-lab text{font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;font-size:19px;fill:rgba(247,247,251,.62);letter-spacing:.02em}
+  .fig-lab .hl{fill:#dfe6ff}
+  .fig-lab{cursor:pointer;opacity:0;transform:translateX(8px);transition:opacity .5s var(--ease),transform .5s var(--ease)}
+  .fig-lab rect{fill:transparent}
+  .fig-lab:hover text{fill:#fff}
+  .fmt{opacity:0;transition:opacity .6s var(--ease)}
+  .fig-wrap.in .fig-spoke{opacity:1}
+  .fig-wrap.in .fig-curve{opacity:1}
+  .fig-wrap.in .fig-lab{opacity:1;transform:none}
+  .fig-core{opacity:0;transition:opacity .8s var(--ease)}
+  .fig-wrap.in .fig-core{opacity:1}
+
+  .fig-side{max-width:430px}
+  .fq{
+    margin:14px 0 0;font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+    font-size:clamp(28px,3.2vw,40px);line-height:1.05;letter-spacing:-.02em;color:#fff;
+  }
+  .fq .v{color:var(--b1);font-size:.7em;vertical-align:super}
+  .fig-note{margin:14px 0 0;font-size:12.5px;line-height:1.8;color:var(--muted-2);min-height:3.6em}
+  .fig-ctl{display:flex;align-items:center;gap:12px;margin-top:20px}
+  .fig-ctl label{font-size:12px;color:var(--muted);min-width:46px}
+  .fig-ctl output{font-size:12px;font-weight:650;min-width:34px;text-align:right}
+  .fig-presets{display:flex;gap:7px;margin-top:12px;flex-wrap:wrap}
+  .fpre{
+    appearance:none;cursor:pointer;font-family:inherit;
+    border:1px solid var(--line);border-radius:9px;padding:6px 10px;
+    font-size:11.5px;letter-spacing:.01em;color:var(--muted);background:transparent;
+    transition:color .2s,background .2s,border-color .2s,transform .2s var(--ease);
+  }
+  .fpre:hover{color:var(--ink);border-color:rgba(255,255,255,.24);transform:translateY(-1px)}
+  .fpre[aria-pressed="true"]{color:#0a0b12;font-weight:680;border-color:transparent;background:linear-gradient(180deg,#dde4ff,#b3bdff)}
+
+  .live-ui{margin-top:24px;display:flex;flex-direction:column;gap:14px}
+  .live-w{filter:drop-shadow(0 20px 34px rgba(0,0,0,.55))}
+  .live-card{
+    padding:15px 18px;display:flex;align-items:center;gap:13px;
+    background-color:rgba(34,36,52,.82);
+    background-image:
+      radial-gradient(130% 150% at 6% -10%,rgba(157,189,254,.30),transparent 58%),
+      linear-gradient(158deg,rgba(255,255,255,.14),rgba(255,255,255,.05) 60%,rgba(255,255,255,.09));
+  }
+  .lc-icon{width:42px;height:42px;flex:0 0 42px;display:grid;place-items:center}
+  .lc-icon img{width:42px;height:42px}
+  .lc-t{font-size:15px;font-weight:640}
+  .lc-m{font-size:12px;color:rgba(255,255,255,.66);margin-top:2px}
+  .live-badge{
+    margin-left:auto;font-size:10.5px;letter-spacing:.06em;font-weight:650;
+    padding:4px 8px;border-radius:7px;color:#0a0b12;
+    background:linear-gradient(180deg,#cfe0c9,#9fd8a8);
+    opacity:0;transform:scale(.9);transition:opacity .3s,transform .3s var(--ease);
+  }
+  .live-badge.on{opacity:1;transform:none}
+  .live-menu{
+    background-color:rgba(18,19,29,.94);
+    background-image:linear-gradient(170deg,rgba(56,58,82,.5),rgba(16,17,26,.3));
+  }
+  .lm-row{display:flex;align-items:center;gap:9px;padding:9px 13px;font-size:12px;border-top:1px solid rgba(255,255,255,.06)}
+  .lm-row:first-child{border-top:0}
+  .lm-row svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;opacity:.8}
+  .lm-row.danger{color:#ffb4b4}
+
+  .geo-outro{
+    position:absolute;left:50%;bottom:8%;transform:translateX(-50%);
     display:flex;flex-direction:column;align-items:center;gap:9px;
-    padding:12px 12px 10px;border-radius:14px;border:1px solid transparent;
-    transition:background .25s,border-color .25s,transform .25s var(--ease);
+    font-size:12px;letter-spacing:.14em;color:rgba(247,247,251,.5);
+    opacity:0;pointer-events:none;text-align:center;
   }
-  .fbs:hover{background:rgba(255,255,255,.04)}
-  .fbs[aria-pressed="true"]{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12)}
-  .fbs svg{width:74px;height:74px;overflow:visible}
-  .fbs .p-fill{opacity:0;transition:opacity .28s var(--ease)}
-  .fbs[aria-pressed="true"] .p-fill{opacity:1}
-  .fbs .p-line{transition:stroke .25s}
-  .fbs[aria-pressed="true"] .p-line{stroke:rgba(255,255,255,.72)}
-  .fbs span{font-size:11px;color:var(--muted-2);letter-spacing:.02em}
-  .fbs[aria-pressed="true"] span{color:var(--ink)}
+  .geo-outro svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 
   @media (max-width:1020px){
-    .geo-grid{grid-template-columns:1fr;gap:18px;align-content:center}
-    .geo-steps{flex-direction:row;max-width:none;gap:14px}
-    .step{padding:12px 0 0;flex:1}
+    .geo-grid{grid-template-columns:1fr;gap:8px;align-content:center}
+    .geo-steps{height:84px;max-width:none;order:1}
+    .step{top:0;margin-top:0;padding-left:0;padding-top:11px;max-width:100%}
     .step::before{left:0;right:0;top:0;bottom:auto;width:auto;height:2px}
-    .step h3{font-size:13.5px;flex-wrap:wrap;gap:4px}
-    .step p{font-size:11.5px}
-    .geo-scene{height:min(46vh,380px)}
-    .formula-band{grid-template-columns:1fr}
-    .fb-shapes{justify-content:space-between}
+    .step h3{font-size:18px;margin:6px 0 0;line-height:1.2}
+    .step h3 br{display:none}
+    .step h3 b{margin-left:6px}
+    .step p{font-size:12px;line-height:1.7;max-width:none;margin-top:5px}
+    .geo-scene{height:clamp(300px,42vh,380px);order:2}
+    .fig-block{grid-template-columns:1fr;gap:24px}
+    .fig-side{max-width:none}
+    .live-ui{flex-direction:row;align-items:flex-start;gap:12px}
+    .live-ui>div{flex:1}
   }
   @media (max-width:640px){
-    .geo-steps .step p{display:none}
-    .fbs svg{width:58px;height:58px}
+    .geo-track{height:420vh}
+    .geo-steps{height:64px}
+    .step p{display:none}
+    .live-ui{flex-direction:column}
+    .tag-row{display:none}
   }
 
   /* ============ glass lab (light) ============ */
@@ -624,8 +729,8 @@
     <div class="wrap">
       <div class="geo-head" data-rv>
         <p class="eyebrow">几何</p>
-        <h2>所有圆角<em>都是同一条曲线</em></h2>
-        <p class="lede">3.1 起，卡片、菜单、菜单项全部落在 <b>|x|ⁿ + |y|ⁿ = 1</b> 上。半径决定角多大，幂次决定角怎么弯 —— 直边进角时曲率从 0 开始，边缘没有折痕。</p>
+        <h2>三层圆角<em>同一条曲线</em></h2>
+        <p class="lede">往下滑。<br>卡片、菜单、菜单项依次浮起，标注自己飞进转角 —— 三段走完，再看它们共用的那条曲线。</p>
       </div>
     </div>
 
@@ -633,21 +738,21 @@
       <div class="geo-sticky">
         <div class="wrap geo-grid">
           <div class="geo-steps" id="geoSteps">
-            <div class="step on">
+            <article class="step" data-step="0">
               <div class="n">01 / CARD</div>
-              <h3>卡片浮上来<b>28px</b></h3>
-              <p>半径最大的一层。直边走到角上，曲率从 0 慢慢长出来，不是突然拐弯。</p>
-            </div>
-            <div class="step">
+              <h3>卡片浮上来<br /><b>28px</b></h3>
+              <p>最大的一层。直边走到角上，曲率从 0 慢慢长出来，不是突然拐一个弯。</p>
+            </article>
+            <article class="step" data-step="1">
               <div class="n">02 / MENU</div>
-              <h3>菜单浮出<b>15px</b></h3>
-              <p>比卡片小一档 —— 两个大圆角并排，中间那道缝会显得臃肿。</p>
-            </div>
-            <div class="step">
+              <h3>菜单浮出<br /><b>15px</b></h3>
+              <p>比卡片小一档。两个大圆角并排，中间那道缝会显得臃肿。</p>
+            </article>
+            <article class="step" data-step="2">
               <div class="n">03 / EXPAND</div>
-              <h3>展开设置<b>8px</b></h3>
+              <h3>展开设置<br /><b>8px</b></h3>
               <p>最小一档，200ms 逐帧揭示。8px 也看得出是曲线，不是直角。</p>
-            </div>
+            </article>
           </div>
 
           <div class="geo-scene">
@@ -660,6 +765,10 @@
                     <div class="gm num">128 项 · 1.24 GB</div>
                   </div>
                 </div>
+                <span class="corner-tag tag-card" id="tagCard">
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M1 19V8.6C1 3.9 3.9 1 8.6 1H19" fill="none" stroke="#0a0b12" stroke-width="2.2" stroke-linecap="round" /></svg>
+                  28px
+                </span>
               </div>
 
               <div class="gs-item gs-menu" id="gsMenu">
@@ -678,32 +787,71 @@
                     <svg class="chev" id="gmChev"><use href="#i-chev"/></svg>
                   </div>
                   <div class="gm-sub" id="gmSub">
-                    <div class="gm-row">透明度<div class="bar"><i style="width:92%"></i></div></div>
-                    <div class="gm-row">材质浓度<div class="bar"><i style="width:48%"></i></div></div>
-                    <div class="gm-row">模糊半径<div class="bar"><i style="width:60%"></i></div></div>
+                    <div class="gm-row">透明度<div class="bar"><i data-w="92"></i></div></div>
+                    <div class="gm-row">材质浓度<div class="bar"><i data-w="48"></i></div></div>
+                    <div class="gm-row">模糊半径<div class="bar"><i data-w="60"></i></div></div>
                   </div>
                   <div class="gm-row danger"><svg><use href="#i-power"/></svg>退出</div>
                 </div>
+                <span class="corner-tag tag-menu" id="tagMenu">
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M1 19V7.8C1 3.6 3.6 1 7.8 1H19" fill="none" stroke="#0a0b12" stroke-width="2.2" stroke-linecap="round" /></svg>
+                  15px
+                </span>
+                <span class="corner-tag tag-row" id="tagRow">8px</span>
               </div>
             </div>
           </div>
+        </div>
+        <div class="geo-outro" id="geoOutro">
+          <span>三档圆角 · 同一条曲线</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v14M6 13l6 6 6-6" /></svg>
         </div>
       </div>
     </div>
 
     <div class="wrap">
-      <div class="formula-band" data-rv>
-        <div>
-          <p class="fb-label">同一个公式，四种性格</p>
-          <p class="fb-eq">|x|<sup class="v" id="fbN1">3</sup> + |y|<sup class="v" id="fbN2">3</sup> = 1</p>
-          <p class="fb-note" id="fbNote">n = 2 是圆，n 越大越方。3 是它们之间的黄金位置 —— 图标与整套界面都取这一档。</p>
-          <p class="fb-hint">点形状切换 · 同一个半径，只改幂次</p>
+      <div class="fig-block">
+        <div class="fig-wrap" id="figWrap" data-rv>
+          <svg id="ellipseFig" viewBox="0 0 700 556" role="img" aria-label="同一半径、同一中心下，n 从 2 到 3.5 的超椭圆族"></svg>
+          <span class="fig-cap">同一半径 · 同一中心 · 只改幂次 n</span>
         </div>
-        <div class="fb-shapes" id="fbShapes">
-          <button class="fbs" data-n="2" aria-pressed="false" aria-label="n 等于 2"><svg viewBox="0 0 76 76"></svg><span>n = 2 · 圆</span></button>
-          <button class="fbs" data-n="3" aria-pressed="true" aria-label="n 等于 3"><svg viewBox="0 0 76 76"></svg><span>n = 3 · 现在</span></button>
-          <button class="fbs" data-n="4" aria-pressed="false" aria-label="n 等于 4"><svg viewBox="0 0 76 76"></svg><span>n = 4 · 更方</span></button>
-          <button class="fbs" data-n="8" aria-pressed="false" aria-label="n 等于 8"><svg viewBox="0 0 76 76"></svg><span>n = 8 · 近方</span></button>
+
+        <div class="fig-side" data-rv data-d="1">
+          <p class="eyebrow">公式</p>
+          <p class="fq">|x|<sup class="v" id="fqN1">3</sup> + |y|<sup class="v" id="fqN2">3</sup> = 1</p>
+          <p class="fig-note" id="figNote">n = 3 是图标与整套界面的取值：比圆更有支撑，比方更柔和。拖滑条，右边两块玻璃会立刻换形。</p>
+
+          <div class="fig-ctl">
+            <label for="nRange">幂次 n</label>
+            <input id="nRange" type="range" min="2" max="4" step="0.1" value="3" aria-label="超椭圆幂次" />
+            <output id="nOut" class="num">3.0</output>
+          </div>
+          <div class="fig-presets" id="figPresets">
+            <button class="fpre" data-n="2" aria-pressed="false">n = 2 · 圆</button>
+            <button class="fpre" data-n="2.5" aria-pressed="false">2.5</button>
+            <button class="fpre" data-n="3" aria-pressed="true">3 · 当前</button>
+            <button class="fpre" data-n="3.5" aria-pressed="false">3.5</button>
+          </div>
+
+          <div class="live-ui">
+            <div class="live-w">
+              <div class="live-card" id="liveCard">
+                <div class="lc-icon"><img src="assets/icon-256.png" alt="" /></div>
+                <div>
+                  <div class="lc-t">回收站</div>
+                  <div class="lc-m num">128 项 · 1.24 GB</div>
+                </div>
+                <span class="live-badge on" id="liveBadge">当前版本</span>
+              </div>
+            </div>
+            <div class="live-w">
+              <div class="live-menu" id="liveMenu">
+                <div class="lm-row"><svg><use href="#i-folder"/></svg>打开回收站</div>
+                <div class="lm-row"><svg><use href="#i-sliders"/></svg>外观设置</div>
+                <div class="lm-row danger"><svg><use href="#i-power"/></svg>退出</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -977,9 +1125,9 @@
     heroCard.addEventListener("pointerleave", function(){ heroCard.classList.remove("hv"); });
   }
 
-  /* ---- superellipse geometry ---- */
+  /* ---- squircle path (corner-rounded rectangle) ---- */
   function squirclePath(w, h, r, n, ox, oy){
-    var e = 2 / n, steps = 18, pts = [];
+    var e = 2 / n, steps = 16, pts = [];
     function arc(cx, cy, sx, sy, t0, t1){
       for (var i = 0; i <= steps; i++){
         var t = t0 + (t1 - t0) * i / steps;
@@ -999,39 +1147,65 @@
     return "M" + pts.map(function(q){ return q[0].toFixed(2) + " " + q[1].toFixed(2); }).join("L") + "Z";
   }
 
-  function clipSquircle(el, r){
+  function clipSquircle(el, r, n){
     if (!el) return;
     var w = el.offsetWidth, h = el.offsetHeight;
     if (!w || !h) return;
-    var d = 'path("' + squirclePath(w, h, r, 3, 0, 0) + '")';
+    var d = 'path("' + squirclePath(w, h, r, n || 3, 0, 0) + '")';
     el.style.webkitClipPath = d;
     el.style.clipPath = d;
   }
 
-  /* ---- sticky 3D: card → menu → expand ---- */
+  /* ---- full superellipse (for the figure) ---- */
+  function superellipsePath(a, n, cx, cy, steps){
+    var e = 2 / n, d = "";
+    for (var i = 0; i <= steps; i++){
+      var t = (i / steps) * Math.PI * 2;
+      var c = Math.cos(t), si = Math.sin(t);
+      var x = cx + a * (c < 0 ? -1 : 1) * Math.pow(Math.abs(c), e);
+      var y = cy + a * (si < 0 ? -1 : 1) * Math.pow(Math.abs(si), e);
+      d += (i ? "L" : "M") + x.toFixed(2) + " " + y.toFixed(2);
+    }
+    return d + "Z";
+  }
+
+  /* ---- scroll story: card → menu → expand, labels fly in ---- */
   var track = document.getElementById("geoTrack");
   var gsCard = document.getElementById("gsCard");
   var gsMenu = document.getElementById("gsMenu");
   var gmSub = document.getElementById("gmSub");
   var gmChev = document.getElementById("gmChev");
   var gsScale = document.getElementById("gsScale");
+  var sceneEl = document.querySelector(".geo-scene");
   var stepEls = [].slice.call(document.querySelectorAll("#geoSteps .step"));
+  var tagCard = document.getElementById("tagCard");
+  var tagMenu = document.getElementById("tagMenu");
+  var tagRow = document.getElementById("tagRow");
+  var barEls = [].slice.call(document.querySelectorAll("#gmSub .bar i"));
+  var geoOutro = document.getElementById("geoOutro");
   var menuClipH = 0;
   var narrow = false;
 
   function clamp01(v){ return v < 0 ? 0 : v > 1 ? 1 : v; }
   function easeOut(t){ return 1 - Math.pow(1 - t, 3); }
+  function easeInOut(t){ return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
   function lerp(a, b, t){ return a + (b - a) * t; }
+  function ramp(p, a, b){ return clamp01((p - a) / (b - a)); }
+  function band(p, a, b, f){
+    f = f || 0.05;
+    return Math.min(ramp(p, a, a + f), 1 - ramp(p, b - f, b));
+  }
 
   function layoutGeo(){
     narrow = window.innerWidth <= 1020;
     if (gsScale){
-      var scene = gsScale.parentElement;
-      var k = narrow ? 1 : Math.min(1, (scene.clientWidth - 26) / 700);
+      var sc = gsScale.parentElement;
+      var k = narrow ? 1 : Math.min(1, (sc.clientWidth - 8) / 620);
       gsScale.style.setProperty("--s", k.toFixed(3));
     }
-    clipSquircle(gsCard && gsCard.querySelector(".gs-surface"), 28);
-    clipSquircle(gsMenu && gsMenu.querySelector(".gs-surface"), 15);
+    clipSquircle(gsCard && gsCard.querySelector(".gs-surface"), 28, 3);
+    clipSquircle(gsMenu && gsMenu.querySelector(".gs-surface"), 15, 3);
+    layoutFigure();
   }
 
   function paintGeo(){
@@ -1041,84 +1215,305 @@
     var total = track.offsetHeight - vh;
     var p = clamp01(total > 0 ? (-top) / total : 0);
 
-    var p1 = easeOut(clamp01(p / 0.30));
-    var p2 = easeOut(clamp01((p - 0.30) / 0.34));
-    var p3 = easeOut(clamp01((p - 0.68) / 0.32));
+    /* --- steps: enter, hold, then fly into the scene --- */
+    var WIN = [
+      { i0: -0.05, i1: 0.05, o0: 0.165, o1: 0.265 },
+      { i0: 0.285, i1: 0.365, o0: 0.45, o1: 0.55 },
+      { i0: 0.575, i1: 0.655, o0: 0.75, o1: 0.85 }
+    ];
+    for (var i = 0; i < stepEls.length; i++){
+      var w = WIN[i], el = stepEls[i];
+      var q = easeOut(ramp(p, w.i0, w.i1));
+      var r = easeInOut(ramp(p, w.o0, w.o1));
+      var op = q * (1 - r);
+      var tx = 26 * (1 - q) + 330 * r;
+      var ty = 22 * (1 - q) - 58 * r;
+      var sc = 0.965 + 0.035 * q - 0.62 * r;
+      var bl = 7 * (1 - q) + 5 * r;
+      el.style.opacity = op.toFixed(3);
+      el.style.transform = "translate3d(" + tx.toFixed(1) + "px," + ty.toFixed(1) + "px,0) scale(" + sc.toFixed(3) + ")";
+      el.style.filter = bl > 0.05 ? "blur(" + bl.toFixed(2) + "px)" : "none";
+      el.classList.toggle("live", r < 0.4 && q > 0.5);
+    }
 
-    var cy = lerp(10, 0, p1) - 16 * p2;
-    var cz = lerp(-140, 0, p1) - 70 * p2;
-    var rx = lerp(16, 5, p1) - 5 * p2;
-    var ry = lerp(-32, -3, p1) + 3 * p2;
-    var sc = lerp(0.94, 1, p1) - 0.04 * p2;
-    var cardX = narrow ? 0 : -90;
-    if (narrow) cy -= 92;
+    /* --- card --- */
+    var out = ramp(p, 0.85, 0.965);
+    var cq = easeOut(ramp(p, -0.07, 0.145));
+    var cx2 = easeOut(ramp(p, 0.25, 0.49));
+    var cy = lerp(52, 0, cq) - 14 * cx2;
+    var cz = lerp(-980, 0, cq) - 40 * cx2;
+    var rx = lerp(30, 4, cq) - 2 * cx2;
+    var ry = lerp(-62, -2, cq) + 2 * cx2;
+    var sca = lerp(0.62, 1, cq) - 0.03 * cx2;
+    var cardX = narrow ? 0 : -72;
+    if (narrow) cy -= 58;
     gsCard.style.transform = "translate(-50%,-50%) translate3d(" + cardX + "px," + cy.toFixed(2) + "px," + cz.toFixed(2) +
-      "px) rotateX(" + rx.toFixed(2) + "deg) rotateY(" + ry.toFixed(2) + "deg) scale(" + sc.toFixed(3) + ")";
-    gsCard.style.opacity = (0.12 + 0.88 * p1).toFixed(3);
+      "px) rotateX(" + rx.toFixed(2) + "deg) rotateY(" + ry.toFixed(2) + "deg) scale(" + sca.toFixed(3) + ")";
+    gsCard.style.opacity = (cq * (1 - 0.94 * out)).toFixed(3);
+    gsCard.classList.toggle("lit", band(p, 0.05, 0.255, 0.05) > 0.45);
+    if (tagCard){
+      var t1 = easeOut(band(p, 0.055, 0.30, 0.05));
+      tagCard.style.opacity = t1.toFixed(3);
+      tagCard.style.transform = "scale(" + (0.62 + 0.38 * t1).toFixed(3) + ") translate3d(0," + (10 * (1 - t1)).toFixed(1) + "px,60px)";
+    }
 
-    var mx = narrow ? lerp(-16, 30, p2) : lerp(-30, 178, p2);
-    var my = narrow ? lerp(24, 40, p2) : lerp(30, 0, p2);
-    var ms = narrow ? 0.88 : 1;
-    var mz = lerp(-160, 90, p2);
-    var mry = lerp(-18, -3, p2);
-    var mrx = lerp(12, 0, p2);
+    /* --- menu --- */
+    var m1 = easeOut(ramp(p, 0.25, 0.475));
+    var mx = narrow ? lerp(40, 18, m1) : lerp(286, 190, m1);
+    var my = narrow ? lerp(6, 40, m1) : lerp(58, 6, m1);
+    var mz = lerp(-660, 90, m1);
+    var mry = lerp(-52, -2, m1);
+    var mrx = lerp(22, 0, m1);
+    var msf = narrow ? 0.84 : 1;
     gsMenu.style.transform = "translate3d(calc(-50% + " + mx.toFixed(2) + "px)," + my.toFixed(2) +
-      "px," + mz.toFixed(2) + "px) rotateX(" + mrx.toFixed(2) + "deg) rotateY(" + mry.toFixed(2) + "deg) scale(" + ms + ")";
-    gsMenu.style.opacity = p2.toFixed(3);
+      "px," + mz.toFixed(2) + "px) rotateX(" + mrx.toFixed(2) + "deg) rotateY(" + mry.toFixed(2) + "deg) scale(" + msf + ")";
+    gsMenu.style.opacity = (m1 * (1 - 0.94 * out)).toFixed(3);
+    gsMenu.classList.toggle("lit", band(p, 0.325, 0.52, 0.05) > 0.45);
+    if (tagMenu){
+      var t2 = easeOut(band(p, 0.33, 0.545, 0.05));
+      tagMenu.style.opacity = t2.toFixed(3);
+      tagMenu.style.transform = "scale(" + (0.62 + 0.38 * t2).toFixed(3) + ") translate3d(0," + (10 * (1 - t2)).toFixed(1) + "px,60px)";
+    }
 
-    gmSub.style.maxHeight = (p3 * 112).toFixed(1) + "px";
-    gmChev.style.transform = "rotate(" + (p3 * 90).toFixed(1) + "deg)";
+    /* --- expand --- */
+    var e1 = easeOut(ramp(p, 0.555, 0.70));
+    gmSub.style.maxHeight = (e1 * 112).toFixed(1) + "px";
+    gmChev.style.transform = "rotate(" + (e1 * 90).toFixed(1) + "deg)";
+    for (var k = 0; k < barEls.length; k++){
+      var bk = easeOut(ramp(p, 0.60 + k * 0.03, 0.70 + k * 0.03));
+      barEls[k].style.transform = "scaleX(" + bk.toFixed(3) + ")";
+    }
+    if (tagRow){
+      var t3 = easeOut(band(p, 0.615, 0.845, 0.05));
+      tagRow.style.opacity = t3.toFixed(3);
+      tagRow.style.transform = "translate3d(" + (8 * (1 - t3)).toFixed(1) + "px," + (6 * (1 - t3)).toFixed(1) + "px,0)";
+    }
 
+    /* --- menu clip follows its own height --- */
     var surf = gsMenu.querySelector(".gs-surface");
     if (surf && surf.offsetHeight !== menuClipH){
       menuClipH = surf.offsetHeight;
-      clipSquircle(surf, 15);
+      clipSquircle(surf, 15, 3);
     }
 
-    var active = p < 0.34 ? 0 : (p < 0.68 ? 1 : 2);
-    for (var i = 0; i < stepEls.length; i++) stepEls[i].classList.toggle("on", i === active);
+    if (sceneEl) sceneEl.style.setProperty("--gpy", (-34 * p).toFixed(1) + "px");
+    if (geoOutro) geoOutro.style.opacity = band(p, 0.875, 1.03, 0.035).toFixed(3);
   }
 
-  /* ---- formula band ---- */
-  var fbShapes = document.getElementById("fbShapes");
-  var fbN1 = document.getElementById("fbN1");
-  var fbN2 = document.getElementById("fbN2");
-  var fbNote = document.getElementById("fbNote");
-  var FB_NOTES = {
-    "2": "n = 2 就是圆：过渡最软，但做卡片会显得没有边界，也撑不起信息。",
-    "3": "n = 3 —— 图标与整套界面都取这一档：比圆更有支撑，比方更柔和。",
-    "4": "n = 4 开始显方：边缘更挺，适合更小、更密的信息块。",
-    "8": "n = 8 几乎就是矩形：只剩一点柔化，接近表格格线的性格。"
-  };
+  /* ---- figure: superellipse family + live UI ---- */
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var FIG = { cx: 238, cy: 300, a: 168, vbW: 700, vbH: 556 };
+  var PRESETS = [
+    { n: 2,   ly: 34,  ang: 1.36, lab: "n : 2" },
+    { n: 2.5, ly: 70,  ang: 1.19, lab: "n : 2.5" },
+    { n: 3,   ly: 106, ang: 1.01, lab: "n : 3" },
+    { n: 3.5, ly: 142, ang: 0.84, lab: "n : 3.5" }
+  ];
+  var figSvg = document.getElementById("ellipseFig");
+  var figWrap = document.getElementById("figWrap");
+  var liveCurve = null;
+  var labEls = [];
 
-  if (fbShapes){
-    [].forEach.call(fbShapes.querySelectorAll(".fbs"), function(btn){
-      var n = parseFloat(btn.dataset.n);
-      var svg = btn.querySelector("svg");
-      var d = squirclePath(76, 76, 26, n, 0, 0);
-      var mk = function(cls){
-        var el = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        el.setAttribute("d", d);
-        el.setAttribute("class", cls);
-        return el;
-      };
-      var fill = mk("p-fill");
-      fill.setAttribute("fill", "url(#fbGrad)");
-      var line = mk("p-line");
-      line.setAttribute("fill", "none");
-      line.setAttribute("stroke", "rgba(255,255,255,.34)");
-      line.setAttribute("stroke-width", "1.2");
-      svg.appendChild(fill);
-      svg.appendChild(line);
+  function el(name, attrs){
+    var e = document.createElementNS(SVGNS, name);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
 
-      btn.addEventListener("click", function(){
-        [].forEach.call(fbShapes.querySelectorAll(".fbs"), function(b){
-          b.setAttribute("aria-pressed", b === btn ? "true" : "false");
-        });
-        fbN1.textContent = n;
-        fbN2.textContent = n;
-        fbNote.textContent = FB_NOTES[String(n)] || "";
+  function buildFigure(){
+    if (!figSvg || figSvg.dataset.built) return;
+    figSvg.dataset.built = "1";
+    var cx = FIG.cx, cy = FIG.cy, A = FIG.a;
+
+    var defs = el("defs", {});
+    var grad = el("linearGradient", { id: "figGrad", x1: "0", y1: "0", x2: "1", y2: "1" });
+    grad.appendChild(el("stop", { offset: "0", "stop-color": "#cfd9ff" }));
+    grad.appendChild(el("stop", { offset: "0.55", "stop-color": "#b7c1ff" }));
+    grad.appendChild(el("stop", { offset: "1", "stop-color": "#9fb6ff" }));
+    defs.appendChild(grad);
+    var mg = el("radialGradient", { id: "figCore", cx: "0.5", cy: "0.5", r: "0.5" });
+    mg.appendChild(el("stop", { offset: "0", "stop-color": "#ffffff", "stop-opacity": ".95" }));
+    mg.appendChild(el("stop", { offset: "0.45", "stop-color": "#dfe6ff", "stop-opacity": ".55" }));
+    mg.appendChild(el("stop", { offset: "1", "stop-color": "#dfe6ff", "stop-opacity": "0" }));
+    defs.appendChild(mg);
+    figSvg.appendChild(defs);
+
+    /* grid */
+    var gGrid = el("g", {});
+    for (var gx = cx - 196; gx <= cx + 196; gx += 22){
+      gGrid.appendChild(el("line", { x1: gx, y1: cy - 218, x2: gx, y2: cy + 218, class: "fig-grid" }));
+    }
+    for (var gy = cy - 196; gy <= cy + 196; gy += 22){
+      gGrid.appendChild(el("line", { x1: cx - 224, y1: gy, x2: cx + 224, y2: gy, class: "fig-grid" }));
+    }
+    gGrid.setAttribute("mask", "url(#figMask)");
+    figSvg.appendChild(gGrid);
+
+    var mask = el("mask", { id: "figMask" });
+    var mr = el("radialGradient", { id: "figMaskG", cx: "0.5", cy: "0.5", r: "0.5" });
+    mr.appendChild(el("stop", { offset: "0.55", "stop-color": "#fff", "stop-opacity": "1" }));
+    mr.appendChild(el("stop", { offset: "1", "stop-color": "#fff", "stop-opacity": "0" }));
+    defs.appendChild(mr);
+    var mrect = el("rect", { x: cx - 214, y: cy - 214, width: 428, height: 428, fill: "url(#figMaskG)" });
+    mask.appendChild(mrect);
+    defs.appendChild(mask);
+
+    /* bounding square */
+    figSvg.appendChild(el("rect", {
+      x: cx - A, y: cy - A, width: A * 2, height: A * 2,
+      fill: "none", stroke: "rgba(255,255,255,.13)", "stroke-width": "1"
+    }));
+
+    /* spokes */
+    var spokes = el("g", {});
+    var N = 72;
+    for (var i = 0; i < N; i++){
+      var t = (i / N) * Math.PI * 2;
+      var ln = el("line", {
+        x1: cx, y1: cy, x2: cx + Math.cos(t) * A * 1.16, y2: cy + Math.sin(t) * A * 1.16,
+        class: "fig-spoke"
       });
+      ln.style.transitionDelay = (i * 5) + "ms";
+      spokes.appendChild(ln);
+    }
+    figSvg.appendChild(spokes);
+
+    /* preset curves */
+    PRESETS.forEach(function(pr, idx){
+      var p = el("path", { d: superellipsePath(A, pr.n, cx, cy, 220), class: "fig-curve" });
+      p.style.transitionDelay = (120 + idx * 70) + "ms";
+      p.dataset.n = pr.n;
+      figSvg.appendChild(p);
+    });
+
+    /* leaders + labels */
+    var LX = 462, TX = 478;
+    PRESETS.forEach(function(pr, idx){
+      var e2 = 2 / pr.n;
+      var th = pr.ang;
+      var px = cx + A * Math.pow(Math.abs(Math.cos(th)), e2);
+      var py = cy - A * Math.pow(Math.abs(Math.sin(th)), e2);
+      var y = pr.ly;
+      var lead = el("path", {
+        d: "M" + px.toFixed(1) + " " + py.toFixed(1) +
+           "L" + (LX - 30) + " " + y + "L" + (LX - 10) + " " + y,
+        class: "fig-lead"
+      });
+      figSvg.appendChild(lead);
+
+      var g = el("g", { class: "fig-lab", "data-n": pr.n });
+      g.style.transitionDelay = (240 + idx * 90) + "ms";
+      g.appendChild(el("rect", { x: 408, y: y - 19, width: 150, height: 38, rx: 10 }));
+      var tx = el("text", { x: TX, y: y + 6 });
+      tx.textContent = pr.lab;
+      g.appendChild(tx);
+      g.appendChild(el("circle", { cx: LX, cy: y, r: 3, fill: "rgba(255,255,255,.55)" }));
+      figSvg.appendChild(g);
+      labEls.push(g);
+    });
+
+    /* live curve */
+    liveCurve = el("path", { d: superellipsePath(A, 3, cx, cy, 220), class: "fig-live" });
+    figSvg.appendChild(liveCurve);
+
+    /* core */
+    var core = el("g", { class: "fig-core" });
+    core.appendChild(el("circle", { cx: cx, cy: cy, r: 34, fill: "url(#figCore)", opacity: ".5" }));
+    core.appendChild(el("circle", { cx: cx, cy: cy, r: 4.2, fill: "#fff" }));
+    figSvg.appendChild(core);
+
+    if ("IntersectionObserver" in window){
+      var io = new IntersectionObserver(function(es){
+        es.forEach(function(en){
+          if (en.isIntersecting){ figWrap.classList.add("in"); io.disconnect(); }
+        });
+      }, { threshold: 0.25 });
+      io.observe(figWrap);
+    } else {
+      figWrap.classList.add("in");
+    }
+  }
+
+  var nRange = document.getElementById("nRange");
+  var nOut = document.getElementById("nOut");
+  var fqN1 = document.getElementById("fqN1");
+  var fqN2 = document.getElementById("fqN2");
+  var figNote = document.getElementById("figNote");
+  var liveCard = document.getElementById("liveCard");
+  var liveMenu = document.getElementById("liveMenu");
+  var liveBadge = document.getElementById("liveBadge");
+  var presetsBox = document.getElementById("figPresets");
+
+  var NOTES = [
+    { at: 2.0, t: "n = 2 是正圆：最柔和，但做卡片会没有边界感，撑不起信息层级。" },
+    { at: 2.5, t: "n = 2.5 已经比圆挺一点，角上开始出现「平台」，接近 iOS 图标的性格。" },
+    { at: 3.0, t: "n = 3 是图标与整套界面的取值：比圆更有支撑，比方更柔和。" },
+    { at: 3.5, t: "n = 3.5 更接近方块，适合更小、更密的信息块，比如列表行与按钮。" },
+    { at: 4.0, t: "n = 4 只剩一点柔化，几乎就是矩形 —— 表格格线的性格。" }
+  ];
+
+  function noteFor(n){
+    var best = NOTES[0];
+    for (var i = 0; i < NOTES.length; i++){
+      if (Math.abs(NOTES[i].at - n) < Math.abs(best.at - n)) best = NOTES[i];
+    }
+    return best.t;
+  }
+
+  function applyN(n, silent){
+    if (!nRange) return;
+    n = Math.max(2, Math.min(4, Math.round(n * 10) / 10));
+    if (nRange.value !== String(n)) nRange.value = n;
+    if (nOut) nOut.textContent = n.toFixed(1);
+    if (!silent){
+      if (fqN1) fqN1.textContent = n.toFixed(1);
+      if (fqN2) fqN2.textContent = n.toFixed(1);
+      if (figNote) figNote.textContent = noteFor(n);
+    }
+    if (liveCurve) liveCurve.setAttribute("d", superellipsePath(FIG.a, n, FIG.cx, FIG.cy, 220));
+    clipSquircle(liveCard, 26, n);
+    clipSquircle(liveMenu, 14, n);
+    if (liveBadge) liveBadge.classList.toggle("on", Math.abs(n - 3) < 0.06);
+
+    [].forEach.call(figSvg ? figSvg.querySelectorAll(".fig-curve") : [], function(p){
+      var pn = parseFloat(p.dataset.n);
+      p.classList.toggle("act", Math.abs(pn - n) < 0.26);
+    });
+    [].forEach.call(labEls, function(g){
+      var pn = parseFloat(g.dataset.n);
+      var on = Math.abs(pn - n) < 0.26;
+      g.querySelector("text").classList.toggle("hl", on);
+    });
+    if (presetsBox){
+      [].forEach.call(presetsBox.querySelectorAll(".fpre"), function(btn){
+        btn.setAttribute("aria-pressed", Math.abs(parseFloat(btn.dataset.n) - n) < 0.06 ? "true" : "false");
+      });
+    }
+  }
+
+  function layoutFigure(){
+    buildFigure();
+    if (liveCard) clipSquircle(liveCard, 26, parseFloat(nRange ? nRange.value : 3));
+    if (liveMenu) clipSquircle(liveMenu, 14, parseFloat(nRange ? nRange.value : 3));
+  }
+
+  if (nRange){
+    nRange.addEventListener("input", function(){ applyN(parseFloat(nRange.value)); });
+    applyN(parseFloat(nRange.value), true);
+  }
+  if (presetsBox){
+    [].forEach.call(presetsBox.querySelectorAll(".fpre"), function(btn){
+      btn.addEventListener("click", function(){ applyN(parseFloat(btn.dataset.n)); });
+    });
+  }
+  [].forEach.call(labEls, function(g){});
+  if (figSvg){
+    figSvg.addEventListener("click", function(e){
+      var g = e.target.closest ? e.target.closest(".fig-lab") : null;
+      if (g) applyN(parseFloat(g.dataset.n));
+    });
+    [].forEach.call(figSvg.querySelectorAll(".fig-lab"), function(g){
+      g.addEventListener("click", function(){ applyN(parseFloat(g.dataset.n)); });
     });
   }
 
