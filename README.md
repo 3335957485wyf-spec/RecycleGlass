@@ -13,6 +13,7 @@
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 ![Size](https://img.shields.io/badge/exe-15.6%20MB-8A8F98)
 ![Website](https://img.shields.io/badge/website-3335957485wyf--spec.github.io%2FRecycleGlass-9AA6FF)
+![Build](https://github.com/3335957485wyf-spec/RecycleGlass/actions/workflows/build.yml/badge.svg)
 
 <img src="docs/images/hero.png" width="900" alt="RecycleGlass 卡片：浅色与深色">
 
@@ -91,12 +92,21 @@ python run.py
 ## 打包
 
 ```bash
-python -m pip install pyinstaller
+python -m pip install -r requirements.txt
 python -m PyInstaller --noconfirm build.spec
 ```
 
 产物是 `dist/RecycleGlass.exe`（单文件，约 16 MB）。
 `build.spec` 里已经带上了图标和版本资源。
+
+### 自动构建
+
+`.github/workflows/build.yml` 会在每次 push 到 `main` 时：
+
+1. 在 Windows 上跑 PyInstaller 打出同样的单文件 exe，作为构建产物保存 30 天；
+2. 把 `site/` 同步到 `gh-pages` 并触发一次 Pages 构建，官网随之更新。
+
+打 `v*` 标签（例如 `v3.2.0`）会额外把 exe 挂到同名 Release 上，Release 说明自动生成。
 
 ## 项目结构
 

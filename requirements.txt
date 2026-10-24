@@ -1,0 +1,4 @@
+# 运行期只需 Pillow；PyInstaller 用于打包。
+# 版本与本地 3.1.0 的构建环境保持一致，避免不同版本导致渲染差异。
+Pillow==13.0.0
+PyInstaller==6.22.3

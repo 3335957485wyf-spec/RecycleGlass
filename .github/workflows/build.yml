@@ -1,0 +1,94 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+# GITHUB_TOKEN 需要能写 Release，并把 site/ 推回 gh-pages。
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  exe:
+    name: Windows exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Build single-file exe
+        run: python -m PyInstaller --noconfirm build.spec
+
+      - name: Inspect artifact
+        shell: pwsh
+        run: |
+          $exe = Get-Item dist/RecycleGlass.exe
+          $v = $exe.VersionInfo
+          "{0:N2} MB | FileVersion {1} | ProductVersion {2} | {3}" -f ($exe.Length / 1MB), $v.FileVersion, $v.ProductVersion, $v.CompanyName
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RecycleGlass-windows-x64
+          path: dist/RecycleGlass.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach exe to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/RecycleGlass.exe
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  site:
+    name: Publish site
+    runs-on: ubuntu-latest
+    # 只有 main 才更新官网，避免旧标签把线上页面回滚。
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy site/ to gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
+          git worktree add /tmp/pages --detach origin/gh-pages
+          cd /tmp/pages
+          git checkout -B gh-pages origin/gh-pages
+          rsync -a --delete --exclude=.git "$GITHUB_WORKSPACE/site/" .
+          touch .nojekyll
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "site unchanged"
+          else
+            git add -A
+            git commit -m "site: update from main ${GITHUB_SHA:0:7}"
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+          fi
+          git worktree remove /tmp/pages --force || true
+
+      - name: Trigger a Pages build
+        # GITHUB_TOKEN 的 push 不会触发新的 workflow run，这里显式请求一次 Pages 构建。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages/builds" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status'), d.get('commit'))"
