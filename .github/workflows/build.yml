@@ -27,9 +27,7 @@ jobs:
 
       - name: Inspect artifact
         shell: cmd
-        run: |
-          for %%F in (build\RecycleGlass.exe) do @echo %%~zF bytes  %%~nxF
-          wmic datafile where "name='%CD:\=\\%\\build\\RecycleGlass.exe'" get Version /value 2>nul
+        run: dir build\RecycleGlass.exe
 
       - uses: actions/upload-artifact@v4
         with:
