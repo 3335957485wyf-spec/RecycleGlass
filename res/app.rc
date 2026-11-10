@@ -1,0 +1,29 @@
+#include "../src/resource.h"
+
+IDR_APPICON     ICON    "app-icon.ico"
+IDI_TRAY        ICON    "app-icon.ico"
+IDR_APPICON_PNG RCDATA  "app-icon-1920.png"
+
+1 VERSIONINFO
+FILEVERSION     4,0,0,0
+PRODUCTVERSION  4,0,0,0
+FILEOS          0x40004L
+FILETYPE        0x1L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "FileDescription", "RecycleGlass - glass recycle bin widget"
+            VALUE "FileVersion",     "4.0.0"
+            VALUE "InternalName",    "RecycleGlass"
+            VALUE "OriginalFilename","RecycleGlass.exe"
+            VALUE "ProductName",     "RecycleGlass"
+            VALUE "ProductVersion",  "4.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END
