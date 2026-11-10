@@ -18,17 +18,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up MinGW-w64
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: false
-          install: mingw-w64-x86-64-gcc make
-          path-type: inherit
+      - name: Install MinGW-w64
+        run: choco install mingw -y --no-progress
 
       - name: Build single-file exe (C)
-        shell: msys2 {0}
-        run: make
+        shell: cmd
+        run: build-mingw.bat
 
       - name: Inspect artifact
         shell: cmd
