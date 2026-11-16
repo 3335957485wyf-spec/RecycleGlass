@@ -347,8 +347,14 @@ static void blur_bgra(BYTE *px, int w, int h, float sigma)
  */
 #define PLANE_SCALE   2
 #define PLANE_MARGIN  80      /* device px of slack around the card */
-#define LIVE_IDLE_MS  120     /* refresh a still card this often */
-#define LIVE_MIN_MS   60
+/* Pacing.  This used to be 120 ms with a 60 ms floor, i.e. ~8 fps: a video
+ * playing behind the card was visibly stuttering because the backdrop only
+ * caught every eighth frame.  It now runs at display rate (~60 fps) while the
+ * screen is actually moving, and still backs off to a few captures a second
+ * when the screen is still, so an idle desktop widget costs nothing. */
+#define LIVE_IDLE_MS  6       /* + ~10 ms of capture/publish = one frame per vsync */
+#define LIVE_MIN_MS   10      /* hard floor between captures */
+#define LIVE_SLOW_MS  400     /* backoff ceiling for a still screen */
 
 typedef struct {
     BYTE *raw;      /* half-res, unblurred */
@@ -988,7 +994,16 @@ static BOOL capture_rect(int x, int y, int w, int h, BYTE **out_px)
     if (dib && bits)
     {
         old = SelectObject(mem, dib);
-        if (BitBlt(mem, 0, 0, w, h, screen, x, y, SRCCOPY | CAPTUREBLT))
+        /* CAPTUREBLT asks the compositor for a fresh frame, which costs ~6 ms -
+         * a third of the 16.7 ms budget for 60 fps.  A plain SRCCOPY grab is
+         * ~10x cheaper and is enough for ordinary windows; it is only tried
+         * first, with the flagged grab as a fallback. */
+        BOOL blt = BitBlt(mem, 0, 0, w, h, screen, x, y, SRCCOPY);
+
+        if (!blt)
+            blt = BitBlt(mem, 0, 0, w, h, screen, x, y, SRCCOPY | CAPTUREBLT);
+
+        if (blt)
         {
             size_t bytes = (size_t)w * h * 4;
             BYTE *px = (BYTE *)malloc(bytes);
@@ -1045,6 +1060,27 @@ static void downsample2(const BYTE *src, int sw, int sh, BYTE *dst, int dw, int 
 
 /* Hands the freshly built tile to the renderer and takes the old buffers
  * back, so the caller can free them outside the lock. */
+static volatile LONG g_live_frames;   /* tiles published since start */
+static volatile LONG g_cap_us, g_build_us, g_builds;
+
+LONG glass_live_frames(void)
+{
+    return InterlockedCompareExchange(&g_live_frames, 0, 0);
+}
+
+/* Average microseconds of a tile rebuild, and the capture part of it.  Used by
+ * the RG_PROF=1 frame-rate log to see where the time goes. */
+void glass_live_timings(LONG *cap_us, LONG *build_us, LONG *builds)
+{
+    LONG n = InterlockedCompareExchange(&g_builds, 0, 0);
+    if (cap_us)   *cap_us   = n ? InterlockedCompareExchange(&g_cap_us, 0, 0) / n : 0;
+    if (build_us) *build_us = n ? InterlockedCompareExchange(&g_build_us, 0, 0) / n : 0;
+    if (builds)   *builds   = n;
+    InterlockedExchange(&g_cap_us, 0);
+    InterlockedExchange(&g_build_us, 0);
+    InterlockedExchange(&g_builds, 0);
+}
+
 static void publish_plane(Plane *p)
 {
     live_init();
@@ -1059,6 +1095,7 @@ static void publish_plane(Plane *p)
         g_lrect.h = g_ltp.h * PLANE_SCALE;
     }
     InterlockedIncrement(&g_gen);
+    InterlockedIncrement(&g_live_frames);
     LeaveCriticalSection(&g_live_lock);
 
     /* While the card is being dragged the UI thread is already painting one
@@ -1388,8 +1425,13 @@ static BOOL tile_build(int x, int y, int w, int h, float radius)
     if (cw <= 4 || ch <= 4)
         return FALSE;
 
-    if (!capture_rect(cx, cy, cw, ch, &full))
-        return FALSE;
+    {
+        ULONGLONG t0 = GetTickCount64();
+        if (!capture_rect(cx, cy, cw, ch, &full))
+            return FALSE;
+        InterlockedExchangeAdd(&g_cap_us, (LONG)(GetTickCount64() - t0) * 1000);
+        InterlockedIncrement(&g_builds);
+    }
 
     /* capture_rect() already excluded our own windows from this grab. */
 
@@ -1440,6 +1482,7 @@ static DWORD WINAPI live_worker(void *arg)
 {
     ULONGLONG last = 0;
     DWORD wait_ms = LIVE_IDLE_MS;
+    int same_run = 0;
     (void)arg;
 
     for (;;)
@@ -1490,11 +1533,19 @@ static DWORD WINAPI live_worker(void *arg)
             last = now;
             if (InterlockedCompareExchange(&g_tile_same, 0, 0))
             {
-                if (wait_ms < 400)
-                    wait_ms *= 2;
+                /* One identical frame is normal when we run slightly faster
+                 * than the compositor; only a RUN of them means the screen is
+                 * actually still, and only then is it worth backing off. */
+                same_run++;
+                if (same_run >= 10 && wait_ms < LIVE_SLOW_MS)
+                {
+                    DWORD next = wait_ms * 2;
+                    wait_ms = next > LIVE_SLOW_MS ? LIVE_SLOW_MS : next;
+                }
             }
             else
             {
+                same_run = 0;
                 wait_ms = LIVE_IDLE_MS;
             }
         }

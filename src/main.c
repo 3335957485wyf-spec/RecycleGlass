@@ -66,6 +66,7 @@ static ULONGLONG g_fx_t0;
 static BOOL      g_dragging, g_btn_down;
 static int       g_drag_last_x, g_drag_last_y;
 static ULONGLONG g_last_frame_us;
+static volatile LONG g_paints;   /* frames actually pushed to the screen */
 static BOOL      g_live_backdrop;   /* blur the real desktop, not the wallpaper */
 static POINT     g_drag_cursor0, g_drag_win0, g_mouse_down;
 static BOOL      g_tracking;
@@ -932,6 +933,7 @@ static void refresh(void)
         g_frame_moves = FALSE;
     }
 
+    InterlockedIncrement(&g_paints);
     if (!UpdateLayeredWindow(g_hwnd, NULL, pdst, &size, g_surf.dc, &src, 0,
                              &bf, ULW_ALPHA))
     {
@@ -2282,6 +2284,36 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         case RG_TIMER_GLASS:
             if (!g_dragging)
             {
+                if (prof_on())
+                {
+                    /* RG_PROF=1: how fast is the live backdrop actually
+                     * landing?  Logged every 2 s while the card is still. */
+                    static ULONGLONG t_last;
+                    static LONG f_last, p_last;
+                    ULONGLONG t = GetTickCount64();
+                    LONG f = glass_live_frames();
+
+                    if (!t_last)
+                    {
+                        t_last = t;
+                        f_last = f;
+                    }
+                    else if (t - t_last >= 2000)
+                    {
+                    {
+                        LONG cap_us = 0, build_us = 0, builds = 0;
+                        glass_live_timings(&cap_us, &build_us, &builds);
+                        LONG paints = InterlockedCompareExchange(&g_paints, 0, 0);
+                        diag(L"live fps=%ld paints=%ld/s frames=%ld builds=%ld cap=%ldus",
+                             (long)((f - f_last) * 1000 / (long)(t - t_last)),
+                             (long)((paints - p_last) * 1000 / (long)(t - t_last)),
+                             (long)f, (long)builds, (long)cap_us);
+                        p_last = paints;
+                    }
+                        t_last = t;
+                        f_last = f;
+                    }
+                }
                 /* Do not invalidate: that clears the published plane and the
                  * repaint below would always miss, falling back to the
                  * wallpaper.  The capture worker publishes a new generation on

@@ -32,6 +32,13 @@ LONG glass_live_gen(void);
 /* Forces the next glass_live() to take a fresh capture. */
 void glass_live_invalidate(void);
 
+/* Tiles published since start (used to measure the live frame rate). */
+LONG glass_live_frames(void);
+
+/* Average cost of one tile rebuild (and of the capture inside it), in us.
+ * Resets the counters on read. */
+void glass_live_timings(LONG *cap_us, LONG *build_us, LONG *builds);
+
 /* Re-blurs the cached capture with a new radius (no screen grab).  Used while
  * the blur slider is being dragged. */
 BOOL glass_live_reblur(float blur_radius);

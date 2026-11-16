@@ -7,8 +7,8 @@ IDR_MISANS_REG  RCDATA  "misans-sub-regular.ttf"
 IDR_MISANS_BOLD RCDATA  "misans-sub-bold.ttf"
 
 1 VERSIONINFO
-FILEVERSION     4,11,6,0
-PRODUCTVERSION  4,11,6,0
+FILEVERSION     4,11,7,0
+PRODUCTVERSION  4,11,7,0
 FILEOS          0x40004L
 FILETYPE        0x1L
 BEGIN
@@ -17,11 +17,11 @@ BEGIN
         BLOCK "080404b0"
         BEGIN
             VALUE "FileDescription", "RecycleGlass - glass recycle bin widget"
-            VALUE "FileVersion",     "4.11.6"
+            VALUE "FileVersion",     "4.11.7"
             VALUE "InternalName",    "RecycleGlass"
             VALUE "OriginalFilename","RecycleGlass.exe"
             VALUE "ProductName",     "RecycleGlass"
-            VALUE "ProductVersion",  "4.11.6"
+            VALUE "ProductVersion",  "4.11.7"
         END
     END
     BLOCK "VarFileInfo"
