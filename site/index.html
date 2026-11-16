@@ -447,80 +447,129 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
 /* cards shimmer on hover */
 .wcard:hover .gx{filter:saturate(1.35) brightness(1.06)}
 
-/* ---------- hero: desktop icons behind the glass + floating chips ---------- */
+/* ---------- hero: clean liquid-glass stage (Apple-style) ---------- */
 .hero-scene{position:relative;width:100%;height:100%}
-.desk-icons{position:absolute;inset:0;z-index:0;pointer-events:none}
-.desk-icons .di{position:absolute;width:52px;display:grid;place-items:center;gap:5px;opacity:.9;
-  filter:drop-shadow(0 6px 12px rgba(0,0,0,.5));animation:iconFloat 7s ease-in-out infinite}
-.desk-icons .di span{font-size:9.5px;color:rgba(255,255,255,.9);text-shadow:0 1px 3px #000;
-  writing-mode:horizontal-tb;white-space:nowrap}
-.desk-icons .di img{width:38px;height:38px}
-.desk-icons .di:nth-child(1){left:4%;top:14%;animation-delay:-1s}
-.desk-icons .di:nth-child(2){left:6%;top:52%;animation-delay:-3s}
-.desk-icons .di:nth-child(3){right:5%;top:24%;animation-delay:-5s}
-.desk-icons .di:nth-child(4){right:3%;top:64%;animation-delay:-2s}
-@keyframes iconFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
 .hero-scene .wcard{z-index:2}
-.hero-chip{position:absolute;z-index:3;display:inline-flex;align-items:center;gap:7px;
-  padding:7px 13px;border-radius:99px;font-size:11.5px;font-weight:600;white-space:nowrap;
-  background:color-mix(in srgb,var(--panel2) 88%,transparent);border:1px solid var(--line2);
-  backdrop-filter:blur(16px) saturate(1.5);box-shadow:0 12px 30px -12px rgba(0,0,0,.7);
-  animation:chipFloat 6s ease-in-out infinite}
-.hero-chip i{width:6px;height:6px;border-radius:50%;background:var(--a0);box-shadow:0 0 8px var(--a0)}
-.hero-chip.c1{right:2%;top:8%;animation-delay:-1s}
-.hero-chip.c2{left:0;bottom:12%;animation-delay:-3s}
-.hero-chip.c3{right:8%;bottom:4%;animation-delay:-5s}
-@keyframes chipFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+/* soft light rings orbiting behind the card — pure CSS, no clutter */
+.orbit{position:absolute;left:50%;top:48%;z-index:0;pointer-events:none;transform:translate(-50%,-50%)}
+.orbit i{position:absolute;border-radius:50%;left:50%;top:50%;transform:translate(-50%,-50%);
+  border:1px solid rgba(255,255,255,.07)}
+.orbit i:nth-child(1){width:330px;height:330px}
+.orbit i:nth-child(2){width:470px;height:470px;border-style:dashed;border-color:rgba(255,255,255,.05)}
+.orbit i:nth-child(3){width:610px;height:610px}
+.hero-chip{position:absolute;z-index:3;display:inline-flex;align-items:center;gap:8px;
+  padding:9px 15px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap;
+  background:color-mix(in srgb,var(--panel2) 82%,transparent);border:1px solid var(--line2);
+  backdrop-filter:blur(18px) saturate(1.6);-webkit-backdrop-filter:blur(18px) saturate(1.6);
+  box-shadow:0 14px 34px -14px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.16);
+  animation:chipFloat 7s ease-in-out infinite}
+.hero-chip i{width:7px;height:7px;border-radius:50%;background:linear-gradient(var(--a0),var(--a1));box-shadow:0 0 10px var(--a0)}
+.hero-chip.c1{right:-2%;top:10%;animation-delay:-1s}
+.hero-chip.c2{left:-4%;bottom:16%;animation-delay:-3.5s}
+.hero-chip.c3{right:6%;bottom:2%;animation-delay:-5s}
+@keyframes chipFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 .scroll-hint{position:absolute;bottom:-56px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;
   align-items:center;gap:6px;font-size:10.5px;letter-spacing:.16em;color:var(--dim2);text-transform:uppercase}
 .scroll-hint b{width:1px;height:26px;background:linear-gradient(var(--a0),transparent);animation:hintLine 2s ease-in-out infinite}
 @keyframes hintLine{0%,100%{opacity:.3;transform:scaleY(.6)}50%{opacity:1;transform:scaleY(1)}}
 
-/* ---------- scene showcase: real-device tabs (Apple-like) ---------- */
-.show-tabs{display:flex;gap:6px;margin:0 auto var(--u4);padding:5px;width:max-content;max-width:100%;
+/* ---------- scene showcase: clean native scenes (Apple-style) ---------- */
+.show-tabs{display:flex;gap:4px;margin:0 auto var(--u5);padding:5px;width:max-content;max-width:100%;
   border-radius:99px;background:var(--segBg);border:1px solid var(--line)}
-.show-tabs button{position:relative;z-index:1;padding:11px 22px;border-radius:99px;font-size:13.5px;
-  font-weight:600;color:var(--dim);white-space:nowrap;transition:color .25s,background .25s,box-shadow .25s}
-.show-tabs button[aria-selected="true"]{color:#14161f;background:linear-gradient(var(--thumbA),var(--thumbB));
-  box-shadow:0 2px 8px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.8)}
-html[data-page="light"] .show-tabs button[aria-selected="true"]{color:#fff;background:linear-gradient(135deg,var(--a0),var(--a1))}
-.show-view{position:relative;border:1px solid var(--line2);border-radius:var(--u5);overflow:hidden;
-  background:var(--panel2);box-shadow:var(--shadow)}
-.show-panel{display:none;grid-template-columns:1.15fr .85fr;align-items:center;gap:var(--u6);padding:var(--u5)}
-.show-panel.on{display:grid;animation:panelIn .5s cubic-bezier(.22,1,.36,1)}
-@keyframes panelIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-.show-shot{position:relative;border-radius:var(--u4);overflow:hidden;background:#080a10;
-  box-shadow:0 20px 50px -20px rgba(0,0,0,.8),0 0 0 1px var(--line)}
-.show-shot img{width:100%;height:auto;display:block}
-.show-shot .badge{position:absolute;left:14px;top:14px;padding:6px 11px;border-radius:99px;font-size:11px;
-  font-weight:700;letter-spacing:.04em;color:#fff;background:rgba(10,12,20,.62);
-  border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(10px)}
-.show-copy h3{margin:0 0 14px;font-size:clamp(22px,2.4vw,32px);letter-spacing:-.015em;line-height:1.22}
-.show-copy p{margin:0 0 var(--u3);font-size:14.5px;line-height:1.9;color:var(--dim)}
-.show-copy ul{margin:0;padding:0;list-style:none;display:grid;gap:12px}
-.show-copy li{display:flex;gap:11px;align-items:flex-start;font-size:13.5px;line-height:1.7;color:var(--dim)}
-.show-copy li svg{width:17px;height:17px;flex:none;margin-top:2px;stroke:var(--a0);fill:none;stroke-width:2.2;
+.show-tabs button{position:relative;z-index:1;padding:12px 26px;border-radius:99px;font-size:14px;
+  font-weight:600;color:var(--dim);white-space:nowrap;transition:color .25s}
+.show-tabs button[aria-selected="true"]{color:var(--tx)}
+.show-tabs button[aria-selected="true"]::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:99px;
+  background:var(--panel);box-shadow:0 2px 10px rgba(0,0,0,.18),inset 0 0 0 1px var(--line2)}
+html[data-page="light"] .show-tabs button[aria-selected="true"]{color:#fff}
+html[data-page="light"] .show-tabs button[aria-selected="true"]::before{background:linear-gradient(135deg,var(--a0),var(--a1))}
+.show-view{position:relative;border:1px solid var(--line);border-radius:var(--u6);overflow:hidden;
+  background:transparent;box-shadow:var(--shadow)}
+.show-panel{display:none;grid-template-columns:1.2fr .8fr;align-items:center;gap:var(--u6);padding:var(--u5)}
+.show-panel.on{display:grid;animation:panelIn .6s cubic-bezier(.22,1,.36,1)}
+@keyframes panelIn{from{opacity:0;transform:translateY(16px) scale(.99)}to{opacity:1;transform:none}}
+.show-stage{position:relative;border-radius:var(--u5);overflow:hidden;isolation:isolate;min-height:360px;
+  box-shadow:0 30px 70px -24px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.08) inset}
+.show-stage .wcard{position:absolute;left:50%;top:50%;--s:.86;margin:-57px 0 0 -146px;z-index:6}
+.show-caption{position:absolute;left:20px;top:18px;z-index:7;padding:7px 13px;border-radius:99px;font-size:11px;
+  font-weight:600;letter-spacing:.05em;color:rgba(255,255,255,.92);background:rgba(12,14,22,.42);
+  border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.show-copy{padding:0 var(--u4) 0 0}
+.show-copy .eyebrow-n{font-size:12px;font-weight:700;letter-spacing:.16em;color:var(--a0);margin:0 0 16px}
+.show-copy h3{margin:0 0 18px;font-size:clamp(26px,2.8vw,38px);letter-spacing:-.02em;line-height:1.16;font-weight:700}
+.show-copy p{margin:0 0 var(--u3);font-size:15px;line-height:1.9;color:var(--dim);max-width:42ch}
+.show-copy ul{margin:0;padding:0;list-style:none;display:grid;gap:13px}
+.show-copy li{display:flex;gap:12px;align-items:flex-start;font-size:14px;line-height:1.65;color:var(--dim)}
+.show-copy li svg{width:18px;height:18px;flex:none;margin-top:1px;stroke:var(--a0);fill:none;stroke-width:2.2;
   stroke-linecap:round;stroke-linejoin:round}
 .show-copy li b{color:var(--tx);font-weight:600}
-.show-metric{display:inline-flex;align-items:baseline;gap:8px;margin-top:var(--u3);padding:12px 18px;
+.show-metric{display:inline-flex;align-items:baseline;gap:10px;margin-top:var(--u4);padding:13px 20px;
   border-radius:var(--u3);background:var(--segBg);border:1px solid var(--line)}
-.show-metric b{font-size:26px;font-weight:700;letter-spacing:-.02em;
+.show-metric b{font-size:28px;font-weight:700;letter-spacing:-.02em;
   background:linear-gradient(120deg,var(--a0),var(--a1));-webkit-background-clip:text;background-clip:text;color:transparent}
 .show-metric span{font-size:12.5px;color:var(--dim)}
-/* 60fps animated scene */
-.video-scene{position:relative;height:300px;border-radius:var(--u4);overflow:hidden;isolation:isolate;
-  background:linear-gradient(120deg,#1a0f2e,#0a1a2e 50%,#0a2a24)}
-.video-scene .flow{position:absolute;inset:-40%;width:180%;height:180%;
+
+/* --- scene A: clean desktop with icon tiles behind real glass --- */
+.scene-desk{background:
+  radial-gradient(90% 120% at 18% 12%,#3a2a7a 0%,transparent 55%),
+  radial-gradient(80% 100% at 88% 20%,#175a8c 0%,transparent 52%),
+  radial-gradient(90% 90% at 60% 105%,#0e5b52 0%,transparent 55%),
+  linear-gradient(150deg,#141033,#0a1526 58%,#0a1d1a)}
+.scene-desk .glow{position:absolute;inset:-30%;background:
+  radial-gradient(circle at 30% 30%,rgba(150,110,255,.5),transparent 42%),
+  radial-gradient(circle at 72% 66%,rgba(80,200,220,.42),transparent 42%);
+  filter:blur(40px);animation:hue 24s ease-in-out infinite alternate}
+html[data-page="light"] .scene-desk{background:
+  radial-gradient(90% 120% at 18% 12%,#b9aef0 0%,transparent 55%),
+  radial-gradient(80% 100% at 88% 20%,#a8d4f2 0%,transparent 52%),
+  radial-gradient(90% 90% at 60% 105%,#a9e0cf 0%,transparent 55%),
+  linear-gradient(150deg,#e8e5fb,#e2eef8 58%,#e3f4ec)}
+html[data-page="light"] .scene-desk .glow{opacity:.5}
+.tile{position:absolute;width:60px;display:grid;place-items:center;gap:7px;z-index:2}
+.tile .ic{width:52px;height:52px;border-radius:15px;display:grid;place-items:center;
+  background:linear-gradient(150deg,rgba(255,255,255,.28),rgba(255,255,255,.08));
+  border:1px solid rgba(255,255,255,.35);box-shadow:0 8px 18px -8px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.4);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.tile .ic svg{width:26px;height:26px;stroke:#fff;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.3))}
+.tile span{font-size:11px;color:rgba(255,255,255,.92);text-shadow:0 1px 4px rgba(0,0,0,.6);font-weight:500}
+html[data-page="light"] .tile .ic{background:linear-gradient(150deg,rgba(255,255,255,.8),rgba(255,255,255,.5));
+  border-color:rgba(255,255,255,.9)}
+html[data-page="light"] .tile .ic svg{stroke:#5a5f8a;filter:none}
+html[data-page="light"] .tile span{color:#3a3f55;text-shadow:0 1px 2px rgba(255,255,255,.6)}
+.tile.t1{left:9%;top:14%}.tile.t2{left:8%;bottom:14%}.tile.t3{right:8%;top:16%}.tile.t4{right:9%;bottom:12%}
+
+/* --- scene B: clean mock window behind real glass --- */
+.scene-window{background:linear-gradient(150deg,#1b1733,#0c1524 60%,#0b1c19)}
+html[data-page="light"] .scene-window{background:linear-gradient(150deg,#e6e3f7,#e4eef9 60%,#e6f4ed)}
+.mock-win{position:absolute;left:50%;top:50%;width:78%;height:70%;transform:translate(-50%,-50%) rotate(-1deg);
+  border-radius:16px;overflow:hidden;z-index:2;background:rgba(246,247,252,.97);
+  box-shadow:0 30px 70px -20px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.5)}
+.mock-bar{height:36px;display:flex;align-items:center;gap:7px;padding:0 14px;
+  background:linear-gradient(#fbfbfd,#eff0f5);border-bottom:1px solid rgba(0,0,0,.06)}
+.mock-bar i{width:10px;height:10px;border-radius:50%}
+.mock-bar i:nth-child(1){background:#ff6b6b}.mock-bar i:nth-child(2){background:#f7c948}.mock-bar i:nth-child(3){background:#4fc97a}
+.mock-bar span{margin-left:auto;font-size:10px;color:#9aa0ae;font-weight:600;letter-spacing:.05em}
+.mock-body{padding:22px 24px}
+.mock-body .mh{width:46%;height:13px;border-radius:5px;background:#c9c4e8;margin-bottom:20px}
+.mock-body .ml{height:8px;border-radius:5px;background:#e2e3ec;margin-bottom:11px}
+.mock-body .ml:nth-child(3){width:92%}.mock-body .ml:nth-child(4){width:78%}.mock-body .ml:nth-child(5){width:86%}
+.mock-body .mchip{display:inline-block;margin-top:12px;padding:7px 14px;border-radius:8px;font-size:11px;font-weight:600;
+  color:#fff;background:linear-gradient(135deg,var(--a0),var(--a1))}
+
+/* --- scene C: flowing video behind real glass --- */
+.scene-video{background:linear-gradient(120deg,#1a0f2e,#0a1a2e 50%,#0a2a24)}
+html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#dcecf7 50%,#d9f2e6)}
+.scene-video .flow{position:absolute;inset:-40%;width:180%;height:180%;
   background:conic-gradient(from 0deg,#7c6bff,#c59dff,#4fd1ff,#6ee7a8,#ffb27a,#7c6bff);
   filter:blur(50px);opacity:.75;animation:flowSpin 8s linear infinite}
 @keyframes flowSpin{to{transform:rotate(1turn)}}
-.video-scene .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.08) 1px,transparent 1px),
-  linear-gradient(90deg,rgba(255,255,255,.08) 1px,transparent 1px);background-size:32px 32px;
+.scene-video .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.09) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(255,255,255,.09) 1px,transparent 1px);background-size:30px 30px;
   -webkit-mask-image:radial-gradient(70% 70% at 50% 50%,#000,transparent);mask-image:radial-gradient(70% 70% at 50% 50%,#000,transparent)}
-.video-scene .wcard{position:absolute;left:50%;top:50%;--s:.82;margin:-54px 0 0 -139px}
-.fps-meter{position:absolute;right:14px;top:14px;z-index:4;display:flex;align-items:center;gap:7px;
-  padding:7px 12px;border-radius:99px;font-size:11.5px;font-weight:700;color:#fff;
-  background:rgba(10,12,20,.6);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(10px)}
+.fps-meter{position:absolute;right:16px;top:16px;z-index:7;display:flex;align-items:center;gap:7px;
+  padding:8px 13px;border-radius:99px;font-size:11.5px;font-weight:700;color:#fff;
+  background:rgba(12,14,22,.55);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(10px)}
 .fps-meter i{width:6px;height:6px;border-radius:50%;background:#6ee7a8;box-shadow:0 0 8px #6ee7a8;animation:blink 1s steps(2) infinite}
 @keyframes blink{50%{opacity:.25}}
 
@@ -598,6 +647,8 @@ html[data-page="light"] .show-tabs button[aria-selected="true"]{color:#fff;backg
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6Z"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5l12 7-12 7V5Z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h3.2a2 2 0 0 1 1.6.8l1 1.3a2 2 0 0 0 1.6.9h5.6A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-11Z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8V7m3 0-.8 12a2 2 0 0 1-2 1.9H7.8a2 2 0 0 1-2-1.9L5 7"/></symbol>
   </defs>
 </svg>
 
@@ -642,13 +693,7 @@ html[data-page="light"] .show-tabs button[aria-selected="true"]{color:#fff;backg
       <div class="stage">
         <div class="hero-scene">
           <div class="beam" aria-hidden="true"></div>
-          <div class="parts" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-          <div class="desk-icons" aria-hidden="true">
-            <div class="di"><img src="assets/icon-64.png" alt=""><span>此电脑</span></div>
-            <div class="di"><img src="assets/icon-64.png" alt=""><span>文件</span></div>
-            <div class="di"><img src="assets/icon-64.png" alt=""><span>下载</span></div>
-            <div class="di"><img src="assets/icon-64.png" alt=""><span>回收站</span></div>
-          </div>
+          <div class="orbit" aria-hidden="true"><i></i><i></i><i></i></div>
           <div class="wcard" id="heroCard" data-theme="dark">
             <i class="gx"></i>
             <div class="wc-in">
@@ -679,13 +724,12 @@ html[data-page="light"] .show-tabs button[aria-selected="true"]{color:#fff;backg
     </div>
   </div>
 
-  <!-- ============ scene showcase: real-device screenshots ============ -->
+  <!-- ============ scene showcase: clean native scenes ============ -->
   <section class="section" id="scene">
     <div class="wrap">
       <div class="shead rv">
-        <div><p class="tagline">In the wild · 真机截屏</p><h2>玻璃后面，<br>到底是谁</h2></div>
-        <p>这三张都是真机截屏，不是渲染图。默认只玻璃桌面（连图标一起）；
-          勾选「总在最前」才把后面的窗口一起磨砂；视频在卡片后面跑，上屏依旧顺滑。</p>
+        <div><p class="tagline">Material in motion · 玻璃在三种场景里</p><h2>同一块玻璃，<br>三种真实处境</h2></div>
+        <p>下面的画面是浏览器实时渲染的，不是截图：拖动标签，看玻璃如何采样桌面、置顶窗口与视频动画。</p>
       </div>
 
       <div class="show-tabs rv" role="tablist" aria-label="场景切换">
@@ -695,35 +739,61 @@ html[data-page="light"] .show-tabs button[aria-selected="true"]{color:#fff;backg
       </div>
 
       <div class="show-view rv">
-        <!-- desktop icons -->
+        <!-- scene A: desktop with icons behind real glass -->
         <div class="show-panel on" data-panel="icons" role="tabpanel">
-          <div class="show-shot">
-            <img src="assets/scene-icons.png" alt="玻璃回收站卡片浮在桌面上，壁纸和桌面图标透过玻璃可见" />
-            <span class="badge">真机截屏 · 4.11.5</span>
+          <div class="show-stage scene-desk">
+            <div class="glow" aria-hidden="true"></div>
+            <div class="tile t1"><div class="ic"><svg><use href="#i-folder"/></svg></div><span>项目</span></div>
+            <div class="tile t2"><div class="ic"><svg><use href="#i-img"/></svg></div><span>图片</span></div>
+            <div class="tile t3"><div class="ic"><svg><use href="#i-monitor"/></svg></div><span>此电脑</span></div>
+            <div class="tile t4"><div class="ic"><svg><use href="#i-trash"/></svg></div><span>回收站</span></div>
+            <span class="show-caption">默认 · 只玻璃桌面</span>
+            <div class="wcard" data-theme="dark">
+              <i class="gx"></i>
+              <div class="wc-in">
+                <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
+                <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
+              </div>
+              <div class="wc-dots"><i></i><i></i><i></i></div>
+            </div>
           </div>
           <div class="show-copy">
+            <p class="eyebrow-n">01 / DESKTOP</p>
             <h3>默认只玻璃桌面，<br>图标也在里面</h3>
-            <p>卡片让桌面窗口自己渲染，壁纸和图标一起进入玻璃。其他软件的窗口不会「透」进来——
-              没置顶时，有窗口在卡片后面，本体就烘焙成不透明，实测逐像素差异 0.00。</p>
+            <p>壁纸和桌面图标一起进入玻璃，其他软件的窗口不会「透」进来。你可以直接透过卡片读到背后的图标轮廓。</p>
             <ul>
-              <li><svg><use href="#i-check"/></svg><span><b>PrintWindow 取桌面</b>：壁纸 + 图标一次采样，约 30ms。</span></li>
+              <li><svg><use href="#i-check"/></svg><span><b>桌面一起采样</b>：壁纸 + 图标一次取景。</span></li>
               <li><svg><use href="#i-check"/></svg><span><b>事件驱动重建</b>：图标变了才重取，平时不占 CPU。</span></li>
-              <li><svg><use href="#i-check"/></svg><span><b>窗口不串味</b>：后面的应用窗口不会透进玻璃。</span></li>
+              <li><svg><use href="#i-check"/></svg><span><b>窗口不串味</b>：后面的应用不会透进玻璃。</span></li>
             </ul>
             <div class="show-metric"><b>0.00</b><span>px · 未置顶时窗口透过玻璃的逐像素差异</span></div>
           </div>
         </div>
 
-        <!-- topmost window -->
+        <!-- scene B: mock window behind real glass -->
         <div class="show-panel" data-panel="window" role="tabpanel">
-          <div class="show-shot">
-            <img src="assets/scene-screen-pair.png" alt="左：未置顶只显示桌面；右：置顶后浏览器窗口在玻璃后被磨砂" />
-            <span class="badge">真机截屏 · 4.11.6</span>
+          <div class="show-stage scene-window">
+            <div class="mock-win">
+              <div class="mock-bar"><i></i><i></i><i></i><span>Safari</span></div>
+              <div class="mock-body">
+                <div class="mh"></div><div class="ml"></div><div class="ml"></div><div class="ml"></div><div class="ml"></div>
+                <span class="mchip">继续阅读</span>
+              </div>
+            </div>
+            <span class="show-caption">置顶 · 磨砂后面的窗口</span>
+            <div class="wcard" data-theme="dark">
+              <i class="gx"></i>
+              <div class="wc-in">
+                <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
+                <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
+              </div>
+              <div class="wc-dots"><i></i><i></i><i></i></div>
+            </div>
           </div>
           <div class="show-copy">
+            <p class="eyebrow-n">02 / TOPMOST</p>
             <h3>勾上「总在最前」，<br>才玻璃其他应用</h3>
-            <p>置顶状态下玻璃改为采样实时屏幕：旁边的浏览器、编辑器、视频窗口都会被一起磨砂。
-              这是你主动选择的效果，不是穿透 bug——开关就在右键菜单里。</p>
+            <p>置顶状态下玻璃改为采样实时屏幕：浏览器、编辑器、视频窗口都会被一起磨砂。这是你主动选择的效果——开关就在右键菜单里。</p>
             <ul>
               <li><svg><use href="#i-pin"/></svg><span><b>置顶 = 实时屏幕</b>：窗口内容随动磨砂。</span></li>
               <li><svg><use href="#i-check"/></svg><span><b>关闭 = 只取桌面</b>：图标在、窗口不在。</span></li>
@@ -733,11 +803,12 @@ html[data-page="light"] .show-tabs button[aria-selected="true"]{color:#fff;backg
           </div>
         </div>
 
-        <!-- video 60fps -->
+        <!-- scene C: flowing video behind real glass -->
         <div class="show-panel" data-panel="video" role="tabpanel">
-          <div class="show-shot video-scene">
+          <div class="show-stage scene-video">
             <div class="flow" aria-hidden="true"></div>
             <div class="grid" aria-hidden="true"></div>
+            <span class="show-caption">视频 · 背景在动</span>
             <div class="fps-meter"><i></i><span id="fpsVal">57 fps</span></div>
             <div class="wcard" data-theme="dark">
               <i class="gx"></i>
@@ -749,9 +820,9 @@ html[data-page="light"] .show-tabs button[aria-selected="true"]{color:#fff;backg
             </div>
           </div>
           <div class="show-copy">
+            <p class="eyebrow-n">03 / MOTION</p>
             <h3>视频在卡片后面，<br>玻璃照样跟得上</h3>
-            <p>抓帧节奏从 120ms（约 8 fps）改成 6ms 节拍，去掉被合成器锁住的 CAPTUREBLT。
-              后面的视频或动画上屏 55–58 帧/秒；静止时退避到 400ms，CPU 回到 ≈ 0%。</p>
+            <p>抓帧节奏从 120ms（约 8 fps）改成 6ms 节拍。后面的视频或动画上屏 55–58 帧/秒；静止时退避到 400ms，CPU 回到 ≈ 0%。</p>
             <ul>
               <li><svg><use href="#i-play"/></svg><span><b>动画时</b>：55–58 fps 稳定上屏，拖动不掉帧。</span></li>
               <li><svg><use href="#i-check"/></svg><span><b>静止时</b>：约 1 fps、CPU ≈ 0%，不空转。</span></li>
