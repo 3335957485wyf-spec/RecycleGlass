@@ -567,6 +567,219 @@ static BOOL wp_plane_build(RectI rect, int style)
     return TRUE;
 }
 
+/* ----------------------------------------------------- the desktop window */
+
+/* The card must show the DESKTOP - the wallpaper *and the icons the user put
+ * on it* - and never the applications that happen to sit on top of it.
+ *
+ * The desktop is a window: "Progman", holding a SHELLDLL_DefView that draws
+ * the icons.  Asking that window to render itself (PrintWindow with
+ * PW_RENDERFULLCONTENT) returns exactly the desktop as arranged, with every
+ * other top-level window left out - no capture exclusion, no reconstruction,
+ * and it works no matter what is in front of the card.
+ *
+ * It is not cheap (a 2560x1600 desktop costs ~30 ms), so it is event driven:
+ * the wallpaper's timestamp, the icon count, a monitor change or an explicit
+ * invalidate trigger a rebuild, plus one slow safety pass in case an icon was
+ * moved without changing the count. */
+#define DESK_SAFETY_MS 20000
+#define LVM_GETITEMCOUNT_C 0x1004
+
+static HWND    g_desk_hwnd;
+static HDC     g_desk_dc;
+static HBITMAP g_desk_bmp;
+static HGDIOBJ g_desk_old;
+static void   *g_desk_bits;
+static int     g_desk_w, g_desk_h;
+static int     g_desk_items = -1;
+
+static BOOL CALLBACK find_defview(HWND hwnd, LPARAM lp)
+{
+    if (FindWindowExW(hwnd, NULL, L"SHELLDLL_DefView", NULL))
+    {
+        *(HWND *)lp = hwnd;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static HWND desktop_window(void)
+{
+    HWND hwnd;
+
+    if (g_desk_hwnd && IsWindow(g_desk_hwnd))
+        return g_desk_hwnd;
+
+    g_desk_hwnd = NULL;
+    hwnd = FindWindowW(L"Progman", NULL);
+    if (hwnd && FindWindowExW(hwnd, NULL, L"SHELLDLL_DefView", NULL))
+        g_desk_hwnd = hwnd;
+    else
+    {
+        /* Wallpaper tools move the icon view into a WorkerW that owns
+         * SHELLDLL_DefView; follow it instead of assuming Progman. */
+        HWND found = NULL;
+        EnumWindows(find_defview, (LPARAM)&found);
+        g_desk_hwnd = found;
+    }
+    return g_desk_hwnd;
+}
+
+/* Reusable window-sized surface for the PrintWindow round trip.  Allocating a
+ * full-desktop DIB on every rebuild would churn tens of megabytes. */
+static BOOL desk_surface(int w, int h)
+{
+    BITMAPINFO bi;
+    HDC screen;
+
+    if (g_desk_dc && g_desk_w == w && g_desk_h == h)
+        return TRUE;
+
+    if (g_desk_dc)
+    {
+        if (g_desk_old)
+            SelectObject(g_desk_dc, g_desk_old);
+        DeleteDC(g_desk_dc);
+        g_desk_dc = NULL;
+        g_desk_old = NULL;
+    }
+    if (g_desk_bmp)
+    {
+        DeleteObject(g_desk_bmp);
+        g_desk_bmp = NULL;
+    }
+    g_desk_bits = NULL;
+    g_desk_w = g_desk_h = 0;
+
+    screen = GetDC(NULL);
+    memset(&bi, 0, sizeof(bi));
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    g_desk_dc = CreateCompatibleDC(screen);
+    g_desk_bmp = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &g_desk_bits, NULL, 0);
+    ReleaseDC(NULL, screen);
+
+    if (!g_desk_dc || !g_desk_bmp || !g_desk_bits)
+        return FALSE;
+
+    g_desk_old = SelectObject(g_desk_dc, g_desk_bmp);
+    g_desk_w = w;
+    g_desk_h = h;
+    return TRUE;
+}
+
+/* Cheap probe: adding or removing a desktop icon changes this count, and that
+ * is by far the most common way the desktop changes during a session. */
+static BOOL desk_items_changed(void)
+{
+    HWND def = FindWindowExW(desktop_window(), NULL, L"SHELLDLL_DefView", NULL);
+    HWND lv = def ? FindWindowExW(def, NULL, L"SysListView32", NULL) : NULL;
+    LRESULT n = -1;
+
+    if (lv)
+    {
+        /* SendMessageTimeout, not SendMessage: a busy Explorer must never be
+         * able to stall our UI thread. */
+        DWORD_PTR r = 0;
+        if (SendMessageTimeoutW(lv, LVM_GETITEMCOUNT_C, 0, 0,
+                                SMTO_ABORTIFHUNG | SMTO_BLOCK, 60, &r))
+            n = (LRESULT)r;
+    }
+
+    if ((int)n != g_desk_items)
+    {
+        g_desk_items = (int)n;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static BOOL desk_plane_build(RectI rect)
+{
+    HWND hwnd = desktop_window();
+    RECT wr;
+    int pw = rect.w / PLANE_SCALE, ph = rect.h / PLANE_SCALE;
+    BITMAPINFO bi;
+    HDC dst;
+    HBITMAP bmp;
+    HGDIOBJ old;
+    void *bits = NULL;
+    BOOL ok = FALSE;
+
+    if (!hwnd || !GetWindowRect(hwnd, &wr))
+        return FALSE;
+    if (pw <= 0 || ph <= 0)
+        return FALSE;
+    if (!desk_surface(wr.right - wr.left, wr.bottom - wr.top))
+        return FALSE;
+
+    if (!PrintWindow(hwnd, g_desk_dc, 2 /* PW_RENDERFULLCONTENT */))
+        return FALSE;
+
+    /* Some drivers hand back an all-black desktop (composition off, secure
+     * desktop).  Treat that as a miss so the caller can fall back. */
+    {
+        const DWORD *q = (const DWORD *)g_desk_bits;
+        size_t n = (size_t)g_desk_w * (size_t)g_desk_h / 16, i, lit = 0;
+        for (i = 0; i < n; i++)
+            if ((q[i * 16] & 0x00FFFFFFu) > 0x080808u)
+                lit++;
+        if (lit < n / 40)
+            return FALSE;
+    }
+
+    if (!plane_alloc(&g_wpp, pw, ph))
+        return FALSE;
+
+    memset(&bi, 0, sizeof(bi));
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = pw;
+    bi.bmiHeader.biHeight = -ph;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+
+    dst = CreateCompatibleDC(g_desk_dc);
+    bmp = dst ? CreateDIBSection(g_desk_dc, &bi, DIB_RGB_COLORS, &bits, NULL, 0) : NULL;
+    if (!dst || !bmp || !bits)
+    {
+        if (bmp) DeleteObject(bmp);
+        if (dst) DeleteDC(dst);
+        plane_free(&g_wpp);
+        return FALSE;
+    }
+
+    old = SelectObject(dst, bmp);
+    SetStretchBltMode(dst, HALFTONE);
+    SetBrushOrgEx(dst, 0, 0, NULL);
+    ok = StretchBlt(dst, 0, 0, pw, ph, g_desk_dc,
+                    rect.x - wr.left, rect.y - wr.top,
+                    rect.w, rect.h, SRCCOPY) != FALSE;
+    GdiFlush();
+    if (ok)
+        memcpy(g_wpp.raw, bits, (size_t)pw * (size_t)ph * 4);
+
+    SelectObject(dst, old);
+    DeleteObject(bmp);
+    DeleteDC(dst);
+
+    if (!ok)
+    {
+        plane_free(&g_wpp);
+        return FALSE;
+    }
+
+    g_wpp.x = rect.x;
+    g_wpp.y = rect.y;
+    g_wpp_rect = rect;
+    g_wpp.valid = TRUE;
+    return TRUE;
+}
+
 /* The wallpaper only changes when the user changes it, so probing the file
  * and the registry on every frame is pure waste - and this runs on every
  * frame of a drag.  Two seconds is short enough to notice a change and long
@@ -575,33 +788,41 @@ static BOOL wp_plane_build(RectI rect, int style)
 
 static BOOL wp_plane_ready(float radius, int x, int y)
 {
-    static ULONGLONG checked_at;
+    static ULONGLONG checked_at, built_at;
     ULONGLONG now = GetTickCount64();
     RectI rect;
     BOOL recheck = !g_wpp.valid || now - checked_at > WP_RECHECK_MS;
+    BOOL items_dirty = FALSE;
 
     if (recheck)
     {
         checked_at = now;
         load_wallpaper();
-        if (!g_wall)
-            return FALSE;
         g_wall_style = reg_read_int(L"Control Panel\\Desktop", L"WallpaperStyle", 10);
+        /* Cross-process SendMessage: only worth paying on the 2 s tick, not on
+         * every frame the card repaints. */
+        items_dirty = desk_items_changed();
     }
-    if (!g_wall)
-        return FALSE;
 
     /* The plane is built per monitor, so moving the card to a second display
      * rebuilds it instead of sampling the wrong wallpaper. */
-    rect = (g_wall_style == 22) ? virtual_rect() : monitor_rect_at(x, y);
+    rect = (g_wall && g_wall_style == 22) ? virtual_rect() : monitor_rect_at(x, y);
 
-    if (!g_wpp.valid || g_wall_dirty ||
+    if (!g_wpp.valid || g_wall_dirty || items_dirty ||
+        now - built_at > DESK_SAFETY_MS ||
         g_wpp_rect.w != rect.w || g_wpp_rect.h != rect.h ||
         g_wpp_rect.x != rect.x || g_wpp_rect.y != rect.y)
     {
-        if (!wp_plane_build(rect, g_wall_style))
+        BOOL built = desk_plane_build(rect);
+
+        if (!built && g_wall)
+            built = wp_plane_build(rect, g_wall_style);
+        if (!built)
             return FALSE;
+
+        built_at = now;
         g_wall_dirty = FALSE;
+        items_dirty = FALSE;
         g_wpp.radius = -1.0f;
     }
 

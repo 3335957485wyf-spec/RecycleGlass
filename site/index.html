@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RecycleGlass 4.11.4 — 把回收站，装进一块玻璃</title>
+<title>RecycleGlass 4.11.5 — 把回收站，装进一块玻璃</title>
 <meta name="description" content="RecycleGlass：Windows 桌面玻璃回收站挂件。实时取色的磨砂玻璃、黄金分割同心圆角、MiSans 字体嵌入，0.98 MB 单文件免安装。">
 <link rel="icon" href="assets/icon-128.png">
 <link rel="apple-touch-icon" href="assets/icon-256.png">
-<meta property="og:title" content="RecycleGlass 4.11.4">
+<meta property="og:title" content="RecycleGlass 4.11.5">
 <meta property="og:description" content="把回收站，装进一块玻璃。">
 <meta property="og:image" content="assets/icon-512.png">
 <style>
@@ -523,7 +523,7 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
   <div class="wrap">
     <a class="brand" href="#top">
       <img src="assets/icon-64.png" alt="" width="24" height="24">
-      <b>RecycleGlass</b><small>4.11.4</small>
+      <b>RecycleGlass</b><small>4.11.5</small>
     </a>
     <nav class="links">
       <a href="#journey">演进</a><a href="#demo">演示</a><a href="#material">材质</a><a href="#frost">磨砂</a>
@@ -543,12 +543,12 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
   <section class="hero">
     <div class="wrap">
       <div>
-        <div class="kicker"><span class="dot"></span><b>4.11.4</b> · MiSans 嵌入 · φ 同心圆角</div>
+        <div class="kicker"><span class="dot"></span><b>4.11.5</b> · MiSans 嵌入 · φ 同心圆角</div>
         <h1>把回收站<br>装进<em>一块玻璃</em></h1>
         <p class="lede">Windows 桌面上的玻璃回收站挂件。<b>实时取色的磨砂</b>、<b>黄金分割的间距</b>、
           <b>无级可调的圆角</b>——31 年没变过的那个图标，终于换了一种材质。</p>
         <div class="ctas">
-          <a class="btn btn-p" href="assets/RecycleGlass-4.11.4.exe" download><svg><use href="#i-dl"/></svg>下载 RecycleGlass.exe</a>
+          <a class="btn btn-p" href="assets/RecycleGlass-4.11.5.exe" download><svg><use href="#i-dl"/></svg>下载 RecycleGlass.exe</a>
           <a class="btn btn-g" href="https://github.com/3335957485wyf-spec/RecycleGlass" target="_blank" rel="noopener"><svg><use href="#i-gh"/></svg>GitHub</a>
         </div>
         <div class="meta">
@@ -651,7 +651,7 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
           <p class="tagline">Live · 真界面复刻</p>
           <h2>菜单就在这儿，<br>随手调一遍</h2>
         </div>
-        <p>这是 4.11.4 外观设置页的 1:1 复刻：分段胶囊、色环、圆角滑块全部可点，
+        <p>这是 4.11.5 外观设置页的 1:1 复刻：分段胶囊、色环、圆角滑块全部可点，
           右边的卡片实时跟着变。φ 标尺让圆角一动、间距一起呼吸。</p>
       </div>
 
@@ -780,7 +780,7 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
             卡片边缘按圆角盒 SDF 采样桌面，R/B 通道走不同距离产生克制色散；
             折射带宽度恒为 <b style="color:var(--tx)">0.45 × 圆角</b>，所以放大圆角时，边缘的“厚度”也跟着长。</p>
           <ul>
-            <li><b>只玻璃桌面</b>玻璃只采样壁纸，别的软件窗口不会糊进卡片；壁纸一变换色换模糊。</li>
+            <li><b>只玻璃桌面</b>玻璃只采样桌面（壁纸 + 图标），别的软件窗口进不来；桌面一变换色换模糊。</li>
             <li><b>半分辨率模糊</b>两次采样重建低频，空闲时 CPU ≈ 0%，拖动也不掉帧。</li>
             <li><b>截屏可见</b>想拍就拍：抓屏瞬间自动排除自身窗口，不留拖影和鬼影。</li>
           </ul>
@@ -860,10 +860,13 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
   <section class="section" id="whatsnew">
     <div class="wrap">
       <div class="shead rv">
-        <div><p class="tagline">What's new</p><h2>4.10 → 4.11.4</h2></div>
+        <div><p class="tagline">What's new</p><h2>4.10 → 4.11.5</h2></div>
         <p><a href="https://github.com/3335957485wyf-spec/RecycleGlass/blob/main/CHANGELOG.md" target="_blank" rel="noopener" style="border-bottom:1px solid var(--line2)">完整更新日志 →</a></p>
       </div>
       <div class="logs rv">
+        <div class="log"><div class="v">4.11.5</div><div><h4>玻璃里重新有桌面图标</h4>
+          <p>让桌面窗口自己渲染（PrintWindow），壁纸和图标一起进入玻璃，其他软件窗口仍被排除；
+          按事件重建（壁纸/图标数量/显示器），整屏抓取约 30ms，不逐帧。</p></div></div>
         <div class="log"><div class="v">4.11.4</div><div><h4>只玻璃桌面 + 滑块对齐</h4>
           <p>卡片不再把后面的窗口糊进玻璃，只采样桌面壁纸（有/无窗口逐像素差异 0.00）；
           圆角滑块的轨道与分段控件共用同一内容盒，圆环外沿落在端点上，左右偏差 ≤1px。</p></div></div>
@@ -893,19 +896,19 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
         <div class="row">
           <img class="icon" src="assets/icon-256.png" alt="">
           <div>
-            <h2>下载 RecycleGlass 4.11.4</h2>
+            <h2>下载 RecycleGlass 4.11.5</h2>
             <p>Windows 10 2004+ / Windows 11 · 免安装单文件 · 双击即用<br>
               自带 MiSans 字体 · 开机自启可选 · 托盘常驻</p>
           </div>
           <div class="acts">
-            <a class="btn btn-p" href="assets/RecycleGlass-4.11.4.exe" download><svg><use href="#i-dl"/></svg>立即下载</a>
+            <a class="btn btn-p" href="assets/RecycleGlass-4.11.5.exe" download><svg><use href="#i-dl"/></svg>立即下载</a>
             <a class="btn btn-g" href="https://github.com/3335957485wyf-spec/RecycleGlass/releases" target="_blank" rel="noopener">历史版本<svg><use href="#i-arrow"/></svg></a>
           </div>
         </div>
         <div class="fine">
-          <span>文件名 <code>RecycleGlass-4.11.4.exe</code></span>
-          <span>大小 <code>0.94 MB</code></span>
-          <span>SHA-256 <code>e5117831…9ff9440</code></span>
+          <span>文件名 <code>RecycleGlass-4.11.5.exe</code></span>
+          <span>大小 <code>0.95 MB</code></span>
+          <span>SHA-256 <code>20b9724a…cf3cf84</code></span>
           <span>MiSans © Xiaomi · 免费商用</span>
         </div>
       </div>

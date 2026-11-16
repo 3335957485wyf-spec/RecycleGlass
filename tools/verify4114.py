@@ -11,7 +11,7 @@ u32 = ctypes.windll.user32
 u32.SetProcessDPIAware()
 
 ROOT = r"C:/Users/hai-3/WorkBuddy/2026-11-15-00-14-22"
-EXE = sys.argv[1] if len(sys.argv) > 1 else ROOT + r"\dist\RecycleGlass-4.11.4.exe"
+EXE = sys.argv[1] if len(sys.argv) > 1 else ROOT + r"\dist\RecycleGlass-4.11.5.exe"
 OUT = ROOT + r"\reference"
 CFG = os.path.join(os.environ["APPDATA"], "RecycleGlass", "config.json")
 LOG = os.path.join(os.environ["LOCALAPPDATA"], "RecycleGlass", "recycleglass.log")
@@ -32,7 +32,7 @@ def lp(x, y): return ((y << 16) | (x & 0xFFFF)) & 0xFFFFFFFF
 
 def kill_all():
     subprocess.run(["taskkill", "/F", "/IM", "RecycleGlass.exe"], capture_output=True)
-    for v in ("4.11.0", "4.11.1", "4.11.2", "4.11.3", "4.11.4", "test"):
+    for v in ("4.11.0", "4.11.1", "4.11.2", "4.11.3", "4.11.4", "4.11.5", "test"):
         subprocess.run(["taskkill", "/F", "/IM", "RecycleGlass-%s.exe" % v], capture_output=True)
     subprocess.run(["taskkill", "/F", "/IM", "notepad.exe"], capture_output=True)
     time.sleep(1.0)
@@ -53,7 +53,7 @@ log_before = os.path.getsize(LOG) if os.path.exists(LOG) else 0
 subprocess.Popen([EXE])
 time.sleep(4.0)
 log = open(LOG, "rb").read()[log_before:]
-assert b"start v4.11.4" in log, "not the new build: " + log[-300:].decode("utf-8", "ignore")
+assert b"start v4.11.5" in log, "not the new build: " + log[-300:].decode("utf-8", "ignore")
 print("log:", [l for l in log.decode("utf-8", "ignore").splitlines() if "start" in l][-1])
 
 card = find("RecycleGlassWidgetC")
