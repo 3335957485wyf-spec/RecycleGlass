@@ -26,6 +26,22 @@ def rect(h):
     return r.left, r.top, r.right, r.bottom
 
 
+def any_running():
+    out = subprocess.run(["tasklist"], capture_output=True).stdout or b""
+    return b"recycleglass" in out.lower()
+
+
+def wait_all_gone(timeout=10.0):
+    """The app rewrites config.json while shutting down; a restore that runs
+    before the last instance is gone is silently overwritten (this bit us)."""
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if not any_running():
+            return True
+        time.sleep(0.3)
+    return False
+
+
 def kill_proc(p, timeout=8):
     """Waits for OUR process: it writes config.json while shutting down, so the
     restore that follows must not race with it."""
@@ -100,5 +116,12 @@ def run_case(topmost, tag):
 kill_all()
 run_case(False, "desktop")
 run_case(True, "screen")
+wait_all_gone()
 open(CFG, "wb").write(orig)
-print("config restored:", hashlib.sha256(open(CFG, "rb").read()).hexdigest() == sha)
+time.sleep(1.0)
+ok = hashlib.sha256(open(CFG, "rb").read()).hexdigest() == sha
+if not ok:                       # a late write slipped in: restore again
+    wait_all_gone()
+    open(CFG, "wb").write(orig)
+    ok = hashlib.sha256(open(CFG, "rb").read()).hexdigest() == sha
+print("config restored:", ok)
