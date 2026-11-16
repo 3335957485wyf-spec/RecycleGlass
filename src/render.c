@@ -871,6 +871,37 @@ static void draw_text(GpGraphics *g, const wchar_t *s, GpFont *font,
     GdipDeleteBrush((GpBrush *)brush);
 }
 
+/* Keep a single line of card text inside maxw, ending it with an ellipsis.
+ * The subtitle is "338 项 · 404.41 MB" - a bin with thousands of items and a
+ * multi-gigabyte size measures wider than the text column, and GDI+ would then
+ * wrap it onto a second line that runs straight into the action pills. */
+static void ellipsize_text(GpGraphics *g, wchar_t *s, GpFont *font, float maxw)
+{
+    float w = 0.0f;
+    size_t n, max;
+
+    if (!s || !*s || !font || maxw <= 1.0f)
+        return;
+    measure_text(g, s, font, &w, NULL);
+    if (w <= maxw)
+        return;
+
+    max = wcslen(s);
+    if (max > 120)
+        max = 120;
+    for (n = max; n > 0; n--)
+    {
+        s[n] = 0x2026;          /* … */
+        s[n + 1] = 0;
+        measure_text(g, s, font, &w, NULL);
+        if (w <= maxw)
+            return;
+        s[n] = 0;
+    }
+    s[0] = 0x2026;
+    s[1] = 0;
+}
+
 /* -------------------------------------------------------------------- icon */
 
 /* Turns a freshly loaded PNG into a small, fully decoded bitmap.
@@ -2355,7 +2386,12 @@ void render_card(RgSurface *s, const RgRenderState *st)
     /* subtitle (fades out as the pills come in) */
     if (L.sub_a > 0.004f)
     {
-        draw_text(g, st->subtitle, g_sub_font, L.text_x,
+        wchar_t sub[128];
+
+        wcsncpy_s(sub, RG_COUNT(sub),
+                  st->subtitle ? st->subtitle : L"", _TRUNCATE);
+        ellipsize_text(g, sub, g_sub_font, L.content_w);
+        draw_text(g, sub, g_sub_font, L.text_x,
                   L.block_top + g_title_h + L.sub_gap, L.content_w,
                   ARGB_OF((int)(255.0f * L.sub_a), p->dim_r, p->dim_g, p->dim_b));
     }

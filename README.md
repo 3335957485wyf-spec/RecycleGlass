@@ -9,9 +9,9 @@
 [官网与下载](https://3335957485wyf-spec.github.io/RecycleGlass/) · [更新日志](CHANGELOG.md)
 
 ![Platform](https://img.shields.io/badge/Windows-10%202004%2B%20%7C%2011-0078D6)
-![Version](https://img.shields.io/badge/version-4.11.1-6E8BFF)
+![Version](https://img.shields.io/badge/version-4.11.0-6E8BFF)
 ![Language](https://img.shields.io/badge/language-C-555555)
-![Size](https://img.shields.io/badge/exe-0.98%20MB%20%C2%B7%20MiSans%20included-8A8F98)
+![Size](https://img.shields.io/badge/exe-0.98%20MB%20·%20MiSans%20included-8A8F98)
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 ![Website](https://img.shields.io/badge/website-3335957485wyf--spec.github.io%2FRecycleGlass-9AA6FF)
 ![Build](https://github.com/3335957485wyf-spec/RecycleGlass/actions/workflows/build.yml/badge.svg)
@@ -40,44 +40,28 @@
 
 （体积：16,391,384 → 869,129 字节；耗时在 2560×1600 @144Hz 上用同一套脚本实测。）
 
-## 版本演进
-
-| 版本 | 关键变化与优化 |
-| --- | --- |
-| **3.0** | Python（PySide）原型，验证「玻璃 + 桌面挂件」方向。代价：PyInstaller 打包 **30 MB+**、冷启动 **1–2 s**、常驻内存 **150 MB** —— 一个挂件不该这么重。 |
-| **4.0** | **纯 C 重写**：exe **0.83 MB**、无运行时依赖、启动即显（**< 100 ms**）、空闲 CPU **≈ 0%**。自研背景引擎：半分辨率平面 + 3 次 box blur（**O(1)/像素，耗时与半径无关**），拖动每帧只做双线性裁剪（**0.4 ms**）。 |
-| 4.5–4.9 | 玻璃打磨：超椭圆 n=3 圆角盒 SDF + 边缘折射色散；φ 标尺统一间距与同心圆角；面板缓存让右键菜单稳定 **60 fps**；抓屏瞬时排除自身窗口（WDA），**截图可见且零拖影**。 |
-| **4.10** | 磨砂可见性重构：覆盖率改「高下限 + 窄跨度」（**0.62 + 0.38 × 透明度**），透明度拉低仍见磨砂；分段控件改为 2 px 内缩的饱满胶囊；圆角 **12–52 px** 无级；间距加黄金下限，小圆角不再塌。 |
-| **4.11** | MiSans 全量替换 + **实测高度视觉居中**；只嵌入界面用到的 **236 字**（**62 KB / 字重**），exe **0.98 MB** 单文件自带字体，渲染与完整字体逐像素一致。 |
-
 ## 功能
 
 - **双击卡片**打开回收站；**把文件/文件夹拖到卡片上**直接回收（支持多选）
+- 拖入时即时预览：`释放以回收 3 项 · 12.4 MB`，不用松手才知道会收进去什么
 - 实时显示 `项数 · 占用空间`，空/满两种图标状态
 - 悬停浮出「打开 / 清空」；清空前有确认面板，明确写出会删掉多少项、多少体积
 - 清空过程中显示 `正在清空… 剩余 N 项`，不会看着像卡死
-- 右键菜单（8 项）：打开回收站 / 清空回收站 / 外观设置 / 总在最前 / 开机自启动 / 截屏可见 / 跟随系统缩放 / 退出
-- 外观设置：主题（跟随 / 浅色 / 深色）、强调色（冰川 / 鸢紫 / 薄荷 / 桃霞 / 琥珀 / 青柠）、界面大小（小 / 标准 / 大）、
-  圆角（**12–52 px 无级**，间距按 φ 联动）、图标（跟随主题 / 原色）
-- 材质与光效：玻璃质感（**晶体 / 极光 / 绒雾**）、透明度、材质浓度、模糊半径、折射强度
-- 玻璃渲染：壁纸/屏幕实时取样模糊 + 圆角盒 SDF + 边缘折射色散（R/B 通道分离）+ 顶边高光衰减；浅色深色两套配色
+- 右键菜单：打开回收站 / 清空回收站 / 外观设置 / 开机自启动 / 跟随系统缩放 / 退出
+- 外观设置：主题、六组渐变强调色、界面大小、圆角、图标风格、材质浓度、模糊半径、边缘折射
+- 玻璃材质：屏幕实时模糊 + 超椭圆转角（n=3）+ 边缘沿圆弧折射真实背景（带色散）+ 顶边高光衰减；浅色深色两套配色
+- 图标主题：卡片、托盘、窗口图标共用同一套渐变；可切回原始蓝色图标
 - 多显示器：卡片始终限制在工作区内，拖到屏幕边缘也不会跑丢
+- 「截屏可见」开关（默认开）：系统截图/录屏能拍到卡片与菜单，软件自己会从背景采样中抠掉自身
 - 配置存在 `%APPDATA%\RecycleGlass\config.json`，日志在 `%LOCALAPPDATA%\RecycleGlass\recycleglass.log`
 
 ## 截图
 
 <div align="center">
 
-<img src="docs/images/hero.png" width="900" alt="RecycleGlass 4.11.1：把回收站装进一块玻璃">
+<img src="docs/images/menu.png" width="520" alt="右键菜单与外观设置">
 
-<br>
-
-<img src="docs/images/settings.png" width="860" alt="外观设置与材质与光效：真实窗口截屏">
-<img src="docs/images/states.png" width="820" alt="卡片与清空确认：真实窗口截屏">
-
-<br>
-
-<sub>以上均为 4.11.1 真实窗口截屏（未做界面重绘），背景为同一桌面的虚化底</sub>
+<img src="docs/images/confirm.png" width="420" alt="清空确认面板">
 
 </div>
 
@@ -146,26 +130,18 @@ make            # 产物 build/RecycleGlass.exe
 ```
 src/
   main.c         窗口、消息循环、拖动、托盘、拖放、配置落盘
-  render.c       卡片绘制：玻璃合成、超椭圆、边光层、阴影、文字、字体
+  render.c       卡片绘制：玻璃合成、超椭圆、边光层、阴影、文字
   glass.c        背景引擎：抓屏/壁纸 → 半分辨率平面 → box blur → 双线性裁剪
-  menu.c         右键菜单：行布局、开关、滑杆、分段胶囊、分页、动画
+  menu.c         右键菜单：行布局、开关、滑杆、分页、动画、确认面板
   icon.c         Lucide 图标几何（烘焙成折线，运行时只描边）
   config.c       配置读写与迁移
   i18n.c         中英文案
   droptarget.c   OLE IDropTarget（把文件拖进卡片）
   shell.c        回收站读写与体积格式化
 res/
-  app.rc         图标 + VERSIONINFO + MiSans 子集（RCDATA）
+  app.rc         图标 + VERSIONINFO
   app-icon.ico   多尺寸图标（16–256）
-  misans-sub-*.ttf  字体子集（由 tools/make_font_subset.py 生成）
-tools/
-  make_font_subset.py  收集界面字符并子集化 MiSans
-  render_promo.py      4K60 宣传片程序化渲染
-  *.py                 开发期自检脚本（截图/对比/预览）
-site/            官网（构建时同步到 gh-pages）
-legacy/          历史实现（3.x Python 原型，仅作参考）
-docs/images/     README 截图
-.github/         CI：编译 exe、附件 Release、同步官网
+site/            官网（推到 gh-pages）
 ```
 
 ## 实现要点

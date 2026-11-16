@@ -683,6 +683,69 @@ static float text_width(GpGraphics *g, const wchar_t *s, GpFont *font)
     return bound.Width;
 }
 
+/* Split "<count> 项 · <size>" at the middle dot.  The confirmation used to be
+ * one line measured in full and then drawn at that width, so a bin with a few
+ * hundred items and a four-digit size ran past the plate and the last glyphs
+ * were clipped.  Breaking at the separator gives two short, readable lines. */
+static int split_hint(const wchar_t *s, wchar_t *a, size_t acap,
+                      wchar_t *b, size_t bcap)
+{
+    const wchar_t *p;
+    size_t n;
+
+    if (!s || !a || !b || acap == 0 || bcap == 0)
+        return 0;
+    a[0] = 0;
+    b[0] = 0;
+    p = wcsstr(s, L" · ");
+    if (!p)
+        return 0;
+
+    n = (size_t)(p - s);
+    if (n >= acap)
+        n = acap - 1;
+    wmemcpy(a, s, n);
+    a[n] = 0;
+    wcsncpy_s(b, bcap, p + 3, _TRUNCATE);
+    return (a[0] && b[0]) ? 1 : 0;
+}
+
+/* Last-resort clamp: keep a string inside maxw, ending it with an ellipsis.
+ * Only reached when even the two-line layout is too wide (absurd counts). */
+static void text_ellipsize(GpGraphics *g, const wchar_t *s, GpFont *font,
+                           float maxw, wchar_t *out, size_t cap)
+{
+    wchar_t buf[192];
+    size_t n, max;
+
+    if (!out || cap == 0)
+        return;
+    out[0] = 0;
+    if (!s)
+        return;
+    if (text_width(g, s, font) <= maxw)
+    {
+        wcsncpy_s(out, cap, s, _TRUNCATE);
+        return;
+    }
+
+    max = wcslen(s);
+    if (max > RG_COUNT(buf) - 2)
+        max = RG_COUNT(buf) - 2;
+    for (n = max; n > 0; n--)
+    {
+        wmemcpy(buf, s, n);
+        buf[n] = 0x2026;        /* … */
+        buf[n + 1] = 0;
+        if (text_width(g, buf, font) <= maxw)
+        {
+            wcsncpy_s(out, cap, buf, _TRUNCATE);
+            return;
+        }
+    }
+    wcsncpy_s(out, cap, L"\x2026", _TRUNCATE);
+}
+
 static void draw_text(GpGraphics *g, const wchar_t *s, GpFont *font,
                       float x, float y, float w, float h, ARGB color,
                       GpStringFormat *fmt)
@@ -1063,20 +1126,30 @@ static void draw_confirm(GpGraphics *g, int idx, const RECT *rect,
     if (g_page == PAGE_DELETE)
     {
         /* On its own page the row above already carries the title, so the plate
-         * holds one line: the icon and the text travel together as a group and
-         * the group is centred in the space above the buttons - left-aligning
-         * it left a hole on the right of the plate. */
+         * holds the icon plus the count/size line, centred as one group.
+         *
+         * The group is only centred as a SINGLE line when it truly fits: the
+         * bin can hold thousands of items and several GB, and the old code
+         * measured the full string, centred it, then clamped its left edge -
+         * which pushed the tail of the text past the plate and clipped it.
+         * If the one-line group is wider than the plate, break at the " · "
+         * separator into count / size and stack them; the icon spans both
+         * lines.  Beyond even that, each line is ellipsized. */
         RECT ca, ok;
         float gap = (float)U1;
+        float inner = (float)(rect->right - rect->left) - pad_x * 2.0f;
         float tw = text_width(g, hint, g_font);
-        float group = (float)ICON_SZ + gap + tw;
         float top = (float)rect->top + gy;
         float bottom;
         float cy;
+        wchar_t h1[128], h2[128], e1[128], e2[128];
+        int split;
 
         confirm_buttons(rect, &ca, &ok);
         bottom = (float)ca.top;
         cy = (top + bottom) * 0.5f;
+
+        split = split_hint(hint, h1, RG_COUNT(h1), h2, RG_COUNT(h2));
 
         if (tw <= 0.0f)
         {
@@ -1088,19 +1161,68 @@ static void draw_confirm(GpGraphics *g, int idx, const RECT *rect,
                       (float)(rect->right - rect->left), line_h,
                       fade(th->text, alpha * t), g_fmt_c);
         }
-        else
+        else if (tw + (float)ICON_SZ + gap <= inner)
         {
+            /* One line fits: keep the tight icon + label group. */
+            float group = (float)ICON_SZ + gap + tw;
             float gx = (float)rect->left +
                        ((float)(rect->right - rect->left) - group) * 0.5f;
-            float min_x = (float)rect->left + pad_x;
-
-            if (gx < min_x)
-                gx = min_x;
 
             icon_draw(g, IC_TRASH, gx + (float)ICON_SZ * 0.5f, cy, (float)ICON_SZ,
                       fade(th->accent, alpha * t), scf(1.9f, 1.3f));
             draw_text(g, hint, g_font, gx + (float)ICON_SZ + gap,
                       cy - line_h * 0.5f, tw + 2.0f, line_h,
+                      fade(th->text, alpha * t), g_fmt_l);
+        }
+        else if (split)
+        {
+            /* Two lines: "永久删除 338 项" over "404.41 MB". */
+            float lh1 = line_h;
+            float lh2 = (float)sc(20, 14);
+            float block = lh1 + lh2;
+            float w1 = text_width(g, h1, g_font);
+            float w2 = text_width(g, h2, g_font_small);
+            float text_w_max = inner - (float)ICON_SZ - gap;
+            float group = (float)ICON_SZ + gap + fmaxf(w1, w2);
+            float gx = (float)rect->left +
+                       ((float)(rect->right - rect->left) - fminf(group, inner)) * 0.5f;
+            float bx = gx + (float)ICON_SZ + gap;
+            float by = cy - block * 0.5f;
+
+            if (group > inner)
+            {
+                text_ellipsize(g, h1, g_font, text_w_max, e1, RG_COUNT(e1));
+                text_ellipsize(g, h2, g_font_small, text_w_max, e2, RG_COUNT(e2));
+            }
+            else
+            {
+                wcsncpy_s(e1, RG_COUNT(e1), h1, _TRUNCATE);
+                wcsncpy_s(e2, RG_COUNT(e2), h2, _TRUNCATE);
+            }
+
+            icon_draw(g, IC_TRASH, gx + (float)ICON_SZ * 0.5f, cy, (float)ICON_SZ,
+                      fade(th->accent, alpha * t), scf(1.9f, 1.3f));
+            draw_text(g, e1, g_font, bx, by, text_w_max + 2.0f, lh1,
+                      fade(th->text, alpha * t), g_fmt_l);
+            draw_text(g, e2, g_font_small, bx, by + lh1, text_w_max + 2.0f, lh2,
+                      fade(th->dim, alpha * t), g_fmt_l);
+        }
+        else
+        {
+            /* No separator to break on: ellipsize the single line. */
+            float text_w_max = inner - (float)ICON_SZ - gap;
+            float group;
+            float gx;
+
+            text_ellipsize(g, hint, g_font, text_w_max, e1, RG_COUNT(e1));
+            group = (float)ICON_SZ + gap + text_width(g, e1, g_font);
+            gx = (float)rect->left +
+                 ((float)(rect->right - rect->left) - fminf(group, inner)) * 0.5f;
+
+            icon_draw(g, IC_TRASH, gx + (float)ICON_SZ * 0.5f, cy, (float)ICON_SZ,
+                      fade(th->accent, alpha * t), scf(1.9f, 1.3f));
+            draw_text(g, e1, g_font, gx + (float)ICON_SZ + gap,
+                      cy - line_h * 0.5f, text_w_max + 2.0f, line_h,
                       fade(th->text, alpha * t), g_fmt_l);
         }
     }

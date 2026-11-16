@@ -36,7 +36,7 @@
 #include <math.h>
 
 #define RG_APP_NAME  L"RecycleGlass"
-#define RG_VERSION   L"4.11.1"
+#define RG_VERSION   L"4.11.2"
 /* Shared squircle exponent: flatter shoulders than a rounded rectangle, with a
  * tighter, more deliberate corner than a circle. */
 #define RG_SQUIRCLE_N 2.0f
