@@ -169,6 +169,10 @@ html[data-page="light"] .stage::before{
 .wc-tx p{margin:0;font-size:16px;color:rgba(226,230,240,.78);font-variant-numeric:tabular-nums}
 .wc-dots{position:absolute;right:22px;top:27px;display:flex;gap:4px;transform:translateZ(18px)}
 .wc-dots i{width:4px;height:4px;border-radius:50%;background:rgba(240,244,252,.55)}
+html[data-page="light"] .wcard{--tint:.66}
+html[data-page="light"] .wcard[data-theme="dark"]{
+  box-shadow:0 30px 70px rgba(18,24,40,.38),0 10px 24px rgba(18,24,40,.18),
+    inset 0 0 0 1px rgba(255,255,255,.2),inset 0 1px 0 rgba(255,255,255,.34)}
 .wcard[data-theme="light"]{background:
     linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.12) 46%,rgba(140,150,175,.10)),
     linear-gradient(150deg,rgba(255,255,255,.78),rgba(248,250,255,.60));
