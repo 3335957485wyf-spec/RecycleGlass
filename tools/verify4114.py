@@ -10,6 +10,19 @@ from PIL import ImageGrab, Image
 u32 = ctypes.windll.user32
 u32.SetProcessDPIAware()
 
+def wait_gone(name, timeout=6.0):
+    """taskkill is asynchronous: the app writes its config while it shuts down,
+    so a restore done too early is silently overwritten."""
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if not subprocess.run(["tasklist", "/FI", "IMAGENAME eq " + name],
+                              capture_output=True, text=True).stdout.count(name):
+            return True
+        time.sleep(0.25)
+    return False
+
+
+
 ROOT = r"C:/Users/hai-3/WorkBuddy/2026-11-15-00-14-22"
 EXE = sys.argv[1] if len(sys.argv) > 1 else ROOT + r"\dist\RecycleGlass-4.11.5.exe"
 OUT = ROOT + r"\reference"
@@ -35,7 +48,9 @@ def kill_all():
     for v in ("4.11.0", "4.11.1", "4.11.2", "4.11.3", "4.11.4", "4.11.5", "test"):
         subprocess.run(["taskkill", "/F", "/IM", "RecycleGlass-%s.exe" % v], capture_output=True)
     subprocess.run(["taskkill", "/F", "/IM", "notepad.exe"], capture_output=True)
-    time.sleep(1.0)
+    wait_gone("RecycleGlass-4.11.5.exe")
+    wait_gone("RecycleGlass-4.11.4.exe")
+    time.sleep(0.6)
 
 os.makedirs(OUT, exist_ok=True)
 orig = open(CFG, "rb").read()

@@ -5,6 +5,19 @@ from PIL import ImageGrab
 
 u32 = ctypes.windll.user32
 u32.SetProcessDPIAware()
+
+def wait_gone(name, timeout=6.0):
+    """taskkill is asynchronous: the app writes its config while it shuts down,
+    so a restore done too early is silently overwritten."""
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if not subprocess.run(["tasklist", "/FI", "IMAGENAME eq " + name],
+                              capture_output=True, text=True).stdout.count(name):
+            return True
+        time.sleep(0.25)
+    return False
+
+
 ROOT = r"C:/Users/hai-3/WorkBuddy/2026-11-15-00-14-22"
 EXE = ROOT + r"\dist\RecycleGlass-4.11.5.exe"
 OUT = ROOT + r"\reference"
@@ -34,6 +47,6 @@ ImageGrab.grab(bbox=(l - 30, t - 30, r + 30, b + 30), all_screens=True).save(
 print("shot", r - l, b - t)
 
 subprocess.run(["taskkill", "/F", "/IM", "RecycleGlass-4.11.5.exe"], capture_output=True)
-time.sleep(0.8)
+wait_gone("RecycleGlass-4.11.5.exe")
 open(CFG, "wb").write(orig)
 print("restored:", hashlib.sha256(open(CFG, "rb").read()).hexdigest() == sha)
