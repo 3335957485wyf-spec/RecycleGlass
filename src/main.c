@@ -468,28 +468,136 @@ static void invalidate_backdrop(void)
     g_backdrop_live = FALSE;
 }
 
-/* Display affinity for the widget, plus the choice of backdrop source.
+/* Backdrop source and display affinity.
  *
- * The card's glass samples the DESKTOP WALLPAPER only.  Sampling the live
- * screen dragged whatever window happened to sit behind the widget into the
- * material - text, lists, white document panes bleeding through the glass -
- * which reads as "the widget is glassing my other apps".  A desktop widget
- * belongs to the desktop, so the wallpaper is the honest source.  It also
- * means no BitBlt of the screen, so nothing needs to be excluded from our own
- * grabs.  (The right-click menu keeps sampling the screen: it opens over
- * whatever the user is looking at, and a panel showing wallpaper where a
- * window is would look like a hole in that window.) */
+ * The source follows the Z-ORDER, because that is what the user is looking at:
+ *
+ *   always on top -> the card floats above other windows, so it samples the
+ *                    real screen and frosts whatever is actually behind it;
+ *   not on top    -> it is a desktop widget, so it samples the DESKTOP itself
+ *                    (wallpaper + the icons the user arranged) and other
+ *                    applications never bleed into the glass.
+ *
+ * The desktop grab is done by the desktop window itself (see glass.c), which
+ * is why it can include icons without including windows. */
 static void init_capture(void)
 {
+    BOOL live = g_cfg.topmost && glass_live_available();
+
     g_live_backdrop = FALSE;
     glass_set_capture_visible(g_cfg.capture_visible);
 
-    /* "Visible in screenshots" = no exclusion at all.  When it is off the
-     * widget opts out of every app's capture, as before. */
-    SetWindowDisplayAffinity(g_hwnd, g_cfg.capture_visible
-                                        ? 0          /* WDA_NONE */
-                                        : 0x00000011 /* WDA_EXCLUDEFROMCAPTURE */);
-    diag(L"backdrop=wallpaper capture_visible=%d", (int)g_cfg.capture_visible);
+    if (!live)
+    {
+        glass_live_pause(TRUE);
+        /* No screen grab at all: the widget only has to honour "visible in
+         * screenshots", so set the affinity that matches the user's choice. */
+        SetWindowDisplayAffinity(g_hwnd, g_cfg.capture_visible
+                                            ? 0          /* WDA_NONE */
+                                            : 0x00000011 /* WDA_EXCLUDEFROMCAPTURE */);
+        diag(L"backdrop=desktop topmost=0 capture_visible=%d",
+             (int)g_cfg.capture_visible);
+        return;
+    }
+
+    glass_live_pause(FALSE);
+
+    /* Always on top: we do grab the screen, so the widget must stay out of its
+     * own backdrop.  glass.c drops WDA_EXCLUDEFROMCAPTURE on both of our
+     * windows for the microseconds of the BitBlt and restores this affinity
+     * right after, which keeps the card visible in the user's screenshots. */
+    if (g_cfg.capture_visible)
+        SetWindowDisplayAffinity(g_hwnd, 0 /* WDA_NONE */);
+    else if (!SetWindowDisplayAffinity(g_hwnd, 0x00000011))
+        return;
+
+    g_live_backdrop = TRUE;
+    diag(L"backdrop=screen topmost=1 capture_visible=%d",
+         (int)g_cfg.capture_visible);
+}
+
+/* Cloaked UWP shells report visible but paint nothing; the DWM answers that,
+ * and it is loaded dynamically so the build needs no extra import library. */
+static BOOL window_cloaked(HWND w)
+{
+    typedef HRESULT (WINAPI *PFN_GETATTR)(HWND, DWORD, PVOID, DWORD);
+    static PFN_GETATTR fn;
+    static BOOL tried;
+    int cloaked = 0;
+
+    if (!tried)
+    {
+        HMODULE m = LoadLibraryW(L"dwmapi.dll");
+        tried = TRUE;
+        if (m)
+            fn = (PFN_GETATTR)(void *)GetProcAddress(m, "DwmGetWindowAttribute");
+    }
+    if (!fn)
+        return FALSE;
+    return fn(w, 14 /* DWMWA_CLOAKED */, &cloaked, sizeof(cloaked)) == 0 && cloaked;
+}
+
+/* Is any other application's window overlapping the card right now?
+ *
+ * The body is translucent (alpha follows the opacity slider), so whatever is
+ * literally behind the window - including another app - blends with the glass.
+ * In "not on top" mode the card is supposed to show ONLY the desktop, so when
+ * a window really is behind it we bake the body opaque: the frosted desktop
+ * stays exactly the same, but nothing can bleed through it.
+ *
+ * The list is queried at most a few times a second: enumerating ~20 top-level
+ * windows is cheap, but this runs from the render path. */
+static BOOL window_overlaps_card(void)
+{
+    static ULONGLONG checked_at;
+    static BOOL cached;
+    RECT card;
+    ULONGLONG now = GetTickCount64();
+    BOOL found = FALSE;
+
+    if (checked_at && now - checked_at < 300)
+        return cached;
+
+    checked_at = now;
+    if (!g_hwnd || !GetWindowRect(g_hwnd, &card))
+        return cached = FALSE;
+
+    {
+        HWND w = GetTopWindow(NULL);
+        while (w)
+        {
+            RECT r;
+            wchar_t cls[64];
+
+            w = GetWindow(w, GW_HWNDNEXT);
+            if (!w || w == g_hwnd)
+                continue;
+            if (!IsWindowVisible(w) || IsIconic(w))
+                continue;
+
+            GetClassNameW(w, cls, RG_COUNT(cls));
+            if (wcscmp(cls, L"Progman") == 0 || wcscmp(cls, L"WorkerW") == 0 ||
+                wcscmp(cls, L"Shell_TrayWnd") == 0 ||
+                wcscmp(cls, L"Shell_SecondaryTrayWnd") == 0)
+                continue;
+
+            /* Cloaked UWP windows are "visible" but show nothing. */
+            if (window_cloaked(w))
+                continue;
+
+            if (!GetWindowRect(w, &r) || r.right <= r.left || r.bottom <= r.top)
+                continue;
+
+            if (r.left < card.right && r.right > card.left &&
+                r.top < card.bottom && r.bottom > card.top)
+            {
+                found = TRUE;
+                break;
+            }
+        }
+    }
+
+    return cached = found;
 }
 
 static void ensure_backdrop(void)
@@ -783,7 +891,10 @@ static void refresh(void)
     st.btn_t[0] = g_btn_t[0];
     st.btn_t[1] = g_btn_t[1];
     st.hover_t = g_hover_t;
-    st.opacity = g_cfg.opacity;
+    /* Not on top + a window really behind the card: bake the glass opaque so
+     * that window cannot bleed through.  On top (or on a clear desktop) the
+     * body keeps its normal translucency. */
+    st.opacity = (!g_cfg.topmost && window_overlaps_card()) ? 1.0f : g_cfg.opacity;
     st.material = g_cfg.material;
     st.drag_hover = g_drag_hover;
     st.has_fx = g_fx_active;
@@ -1442,6 +1553,13 @@ static void handle_command(int cmd)
     case RG_CMD_TOPMOST:
         g_cfg.topmost = !g_cfg.topmost;
         apply_zorder();
+        /* Toggling this changes what the glass samples (desktop vs screen). */
+        init_capture();
+        if (g_live_backdrop)
+            glass_live_set_target(g_hwnd);
+        invalidate_backdrop();
+        render_invalidate();
+        refresh();
         g_cfg_dirty = TRUE;
         break;
 

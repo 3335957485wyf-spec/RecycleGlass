@@ -1503,6 +1503,15 @@ static DWORD WINAPI live_worker(void *arg)
     return 0;
 }
 
+/* Stops (pause = TRUE) or re-arms the live capture worker.  The card only
+ * samples the screen while it is always-on-top; as a plain desktop widget it
+ * reads the desktop instead and this worker must go quiet. */
+void glass_live_pause(BOOL pause)
+{
+    live_init();
+    InterlockedExchange(&g_target_set, pause ? 0 : 1);
+}
+
 void glass_live_set_target(HWND hwnd)
 {
     live_init();

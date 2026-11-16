@@ -43,6 +43,9 @@ void glass_live_menu(BOOL open);
  * capture lands. */
 void glass_live_set_target(HWND hwnd);
 
+/* TRUE parks the live-capture worker (the card is reading the desktop). */
+void glass_live_pause(BOOL pause);
+
 /* Tells the capture thread where the card is right now, so it keeps refreshing
  * the blur around it (call once per frame). */
 void glass_live_follow(int x, int y, int w, int h, float blur_radius, BOOL hold);
