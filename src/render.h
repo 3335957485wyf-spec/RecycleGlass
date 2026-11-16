@@ -60,6 +60,10 @@ float render_scale(void);
 /* The single UI typeface family (bundled MiSans, or the platform fallback).
  * The returned pointer stays valid for the whole process. */
 GpFontFamily *render_app_family(void);
+/* How far a font's glyphs sit above the centre of GDI+'s line box.  Positive
+ * means "draw this many pixels lower" so the INK, not the line box, is centred.
+ * Measured once per font by render_text_ink_offset(); callers should cache it. */
+float render_text_ink_offset(GpFont *font);
 int   render_win_w(void);
 int   render_win_h(void);
 int   render_card_w(void);

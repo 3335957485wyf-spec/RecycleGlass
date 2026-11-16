@@ -209,6 +209,9 @@ static ULONG_PTR g_gdiplus_token = 0;
 static HINSTANCE  g_inst = NULL;
 static GpFont    *g_title_font = NULL;
 static GpFont    *g_sub_font = NULL;
+/* Per-font ink-centre compensation, measured once in build_fonts(). */
+static float      g_ink_title = 0.0f;
+static float      g_ink_sub = 0.0f;
 static GpFontFamily *g_family = NULL;
 static GpStringFormat *g_fmt = NULL;
 static GpImage   *g_icon = NULL;
@@ -800,6 +803,9 @@ static void build_fonts(void)
     }
 
     measure_font_heights();
+
+    g_ink_title = render_text_ink_offset(g_title_font);
+    g_ink_sub   = render_text_ink_offset(g_sub_font);
 }
 
 static void measure_font_heights(void)
@@ -855,12 +861,20 @@ static void draw_text(GpGraphics *g, const wchar_t *s, GpFont *font,
 {
     GpSolidFill *brush = NULL;
     GpRectF rect;
+    float off = 0.0f;
 
     if (!s || !*s || !font)
         return;
 
+    /* Shift the line box so the GLYPHS end up centred, not the font's line
+     * box (see render_text_ink_offset). */
+    if (font == g_title_font)
+        off = g_ink_title;
+    else if (font == g_sub_font)
+        off = g_ink_sub;
+
     rect.X = x;
-    rect.Y = y;
+    rect.Y = y + off;
     rect.Width = w;
     rect.Height = 4000.0f;
 
@@ -900,6 +914,90 @@ static void ellipsize_text(GpGraphics *g, wchar_t *s, GpFont *font, float maxw)
     }
     s[0] = 0x2026;
     s[1] = 0;
+}
+
+/* ------------------------------------------------- ink-centre compensation */
+
+/* GDI+ "vertical centring" centres its OWN line box - ascent + descent plus
+ * leading - and that box is not symmetric around the ideographic square:
+ * MiSans reports ascent 1.056 em and descent 0.333 em, so the box centre sits
+ * ~0.11 em BELOW the visual centre of a hanzi.  Every label therefore landed
+ * 1.5-2 px too high inside its pill, row or card - the "字都偏上" report.
+ *
+ * The offset is a constant per font, so measure it once: draw one full-square
+ * hanzi into a scratch bitmap through the very same GDI+ path, find the ink's
+ * vertical centre and compare it with the box centre.  A positive result means
+ * "move the text down by this much". */
+float render_text_ink_offset(GpFont *font)
+{
+    enum { PX = 64 };
+    BYTE *bits;
+    GpBitmap *bm = NULL;
+    GpGraphics *g = NULL;
+    GpSolidFill *br = NULL;
+    GpStringFormat *fmt = NULL;
+    GpRectF rc = { 0.0f, 0.0f, (REAL)PX, (REAL)PX };
+    int y, top = -1, bottom = -1;
+    float off = 0.0f;
+
+    if (!font || !g_gdiplus_token)
+        return 0.0f;
+
+    bits = (BYTE *)calloc((size_t)PX * PX, 4);
+    if (!bits)
+        return 0.0f;
+
+    if (GdipCreateBitmapFromScan0(PX, PX, PX * 4, PixelFormat32bppPARGB,
+                                  bits, &bm) != Ok || !bm)
+    {
+        free(bits);
+        return 0.0f;
+    }
+    if (GdipGetImageGraphicsContext(bm, &g) != Ok ||
+        GdipCreateSolidFill(0xFFFFFFFF, &br) != Ok ||
+        GdipCreateStringFormat(0, 0, &fmt) != Ok)
+    {
+        if (g) GdipDeleteGraphics(g);
+        if (br) GdipDeleteBrush((GpBrush *)br);
+        if (fmt) GdipDeleteStringFormat(fmt);
+        GdipDisposeImage(bm);
+        free(bits);
+        return 0.0f;
+    }
+
+    GdipGraphicsClear(g, 0x00000000);
+    GdipSetTextRenderingHint(g, TextRenderingHintAntiAlias);
+    GdipSetStringFormatAlign(fmt, StringAlignmentCenter);
+    GdipSetStringFormatLineAlign(fmt, StringAlignmentCenter);
+    GdipSetStringFormatFlags(fmt, StringFormatFlagsNoWrap | StringFormatFlagsNoClip);
+    GdipDrawString(g, L"\x56FD", -1, font, &rc, fmt, (GpBrush *)br);
+
+    for (y = 0; y < PX; y++)
+    {
+        const BYTE *row = bits + (size_t)y * PX * 4;
+        int x;
+        for (x = 0; x < PX; x++)
+        {
+            if (row[x * 4 + 3] > 16)
+            {
+                if (top < 0)
+                    top = y;
+                bottom = y;
+                break;
+            }
+        }
+    }
+
+    if (top >= 0 && bottom >= top)
+        off = (float)PX * 0.5f -
+              ((float)top + (float)(bottom + 1)) * 0.5f;
+
+    GdipDeleteStringFormat(fmt);
+    GdipDeleteBrush((GpBrush *)br);
+    GdipDeleteGraphics(g);
+    GdipDisposeImage(bm);
+    free(bits);
+    return off;
 }
 
 /* -------------------------------------------------------------------- icon */

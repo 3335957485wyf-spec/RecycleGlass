@@ -124,6 +124,11 @@ static BOOL     g_panel_valid;
 static GpFontFamily *g_family;
 static GpFont    *g_font;
 static GpFont    *g_font_small;
+/* Per-font ink-centre compensation (see render_text_ink_offset): GDI+ centres
+ * its line box, and MiSans' box centre sits ~0.1 em below the visual centre of
+ * the glyphs, which left every label 1.5-2 px high inside its row or pill. */
+static float      g_ink_font;
+static float      g_ink_small;
 static GpStringFormat *g_fmt_l;
 static GpStringFormat *g_fmt_r;
 static GpStringFormat *g_fmt_c;
@@ -765,14 +770,16 @@ static void draw_text(GpGraphics *g, const wchar_t *s, GpFont *font,
 
     /* GDI+ centres the whole LINE BOX, leading included; with CJK fonts the
      * glyphs then hang one or two pixels above the visual centre of their
-     * row / thumb.  Measure the real text height and centre THAT instead, so
-     * labels sit dead-centre no matter which family (MiSans, YaHei...) is
-     * active or what metrics it ships. */
+     * row / thumb.  Measure the real text height and centre THAT, and add the
+     * font's ink bias so the glyph ink - not the line box - lands on the
+     * optical centre. */
     if (GdipMeasureString(g, s, -1, font, &rect, fmt ? fmt : g_fmt_l,
                           &bound, NULL, NULL) == Ok && bound.Height > 0.5f)
         bh = bound.Height;
 
-    rect.Y = y + (h - bh) * 0.5f;
+    rect.Y = y + (h - bh) * 0.5f +
+             (font == g_font ? g_ink_font
+                             : (font == g_font_small ? g_ink_small : 0.0f));
     rect.Height = bh;
 
     if (GdipCreateSolidFill(color, &br) != Ok)
@@ -2113,6 +2120,9 @@ static void ensure_fonts(void)
     GdipCreateFont(g_family, (REAL)FS, FontStyleRegular, UnitPixel, &g_font);
     GdipCreateFont(g_family, (REAL)sc(14, 10), FontStyleRegular, UnitPixel,
                    &g_font_small);
+
+    g_ink_font  = render_text_ink_offset(g_font);
+    g_ink_small = render_text_ink_offset(g_font_small);
 
     GdipCreateStringFormat(0, 0, &g_fmt_l);
     GdipSetStringFormatAlign(g_fmt_l, StringAlignmentNear);
