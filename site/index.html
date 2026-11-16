@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RecycleGlass 4.12.0 — 把回收站，装进一块玻璃</title>
-<meta name="description" content="RecycleGlass 4.12.0：Windows 桌面玻璃回收站挂件。玻璃连桌面图标一起磨砂，置顶时磨砂其他应用，视频背景照样 60 帧。φ 同心圆角、MiSans 字体嵌入，0.45 MB 单文件免安装。">
+<title>RecycleGlass 4.12.1 — 把回收站，装进一块玻璃</title>
+<meta name="description" content="RecycleGlass 4.12.1：Windows 桌面玻璃回收站挂件。玻璃连桌面图标一起磨砂，置顶时磨砂其他应用，视频背景照样 60 帧。φ 同心圆角、MiSans 字体嵌入，0.45 MB 单文件免安装。">
 <link rel="icon" href="assets/icon-128.png">
 <link rel="apple-touch-icon" href="assets/icon-256.png">
-<meta property="og:title" content="RecycleGlass 4.12.0">
+<meta property="og:title" content="RecycleGlass 4.12.1">
 <meta property="og:description" content="把回收站，装进一块玻璃。">
 <meta property="og:image" content="assets/icon-512.png">
 <style>
@@ -687,7 +687,7 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
   <div class="wrap">
     <a class="brand" href="#top">
       <img src="assets/icon-64.png" alt="" width="24" height="24">
-      <b>RecycleGlass</b><small>4.12.0</small>
+      <b>RecycleGlass</b><small>4.12.1</small>
     </a>
     <nav class="links">
       <a href="#scene">场景</a><a href="#demo">演示</a><a href="#material">材质</a>
@@ -707,13 +707,13 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
   <section class="hero">
     <div class="wrap">
       <div>
-        <div class="kicker"><span class="dot"></span><b>4.12.0</b> · 体积 -53% · 空闲零重绘</div>
+        <div class="kicker"><span class="dot"></span><b>4.12.1</b> · 修复透明度条件 · 遮挡即不透明</div>
         <h1>把回收站<br>装进<em>一块玻璃</em></h1>
         <p class="lede">Windows 桌面上的玻璃回收站挂件。<b>连桌面图标一起磨砂</b>、<b>置顶时把后面的窗口也变玻璃</b>、
           <b>视频背景照样 60 帧</b>——31 年没变过的那个图标，终于换了一种材质。
-          4.12.0 把体积砍掉一半、空闲不再空转，精细度分毫未减。</p>
+          4.12.1 修好了遮挡时的透明度判断，窗口再也不会「透」进玻璃，精细度分毫未减。</p>
         <div class="ctas">
-          <a class="btn btn-p" href="assets/RecycleGlass-4.12.0.exe" download><svg><use href="#i-dl"/></svg>下载 RecycleGlass.exe</a>
+          <a class="btn btn-p" href="assets/RecycleGlass-4.12.1.exe" download><svg><use href="#i-dl"/></svg>下载 RecycleGlass.exe</a>
           <a class="btn btn-g" href="https://github.com/3335957485wyf-spec/RecycleGlass" target="_blank" rel="noopener"><svg><use href="#i-gh"/></svg>GitHub</a>
         </div>
         <div class="meta">
@@ -872,7 +872,7 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
           <p class="tagline">Live · 真界面复刻</p>
           <h2>菜单就在这儿，<br>随手调一遍</h2>
         </div>
-        <p>这是 4.12.0 外观设置页的 1:1 复刻：分段胶囊、色环、圆角滑块全部可点，
+        <p>这是 4.12.1 外观设置页的 1:1 复刻：分段胶囊、色环、圆角滑块全部可点，
           右边的卡片实时跟着变。φ 标尺让圆角一动、间距一起呼吸。</p>
       </div>
 
@@ -1061,11 +1061,15 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
   <section class="section" id="whatsnew">
     <div class="wrap">
       <div class="shead rv">
-        <div><p class="tagline">What's new</p><h2>不减精细度，<br>只减体积和空转</h2></div>
+        <div><p class="tagline">What's new</p><h2>遮挡即不透明，<br>窗口不再透进玻璃</h2></div>
         <p><a href="https://github.com/3335957485wyf-spec/RecycleGlass/blob/main/CHANGELOG.md" target="_blank" rel="noopener" style="border-bottom:1px solid var(--line2)">完整更新日志 →</a></p>
       </div>
       <div class="logs rv">
-        <div class="log"><div class="v">4.12.0 <span style="font-size:9px;letter-spacing:.08em;padding:2px 7px;border-radius:99px;background:linear-gradient(135deg,var(--a0),var(--a1));color:#fff;margin-left:4px;white-space:nowrap">最新</span></div><div><h4>零空转 · 体积腰斩 · 悬停修复</h4>
+        <div class="log"><div class="v">4.12.1 <span style="font-size:9px;letter-spacing:.08em;padding:2px 7px;border-radius:99px;background:linear-gradient(135deg,var(--a0),var(--a1));color:#fff;margin-left:4px;white-space:nowrap">最新</span></div><div><h4>修复透明度条件 · 遮挡即不透明</h4>
+          <p>未置顶且有窗口盖住卡片时，本应把本体烘焙为不透明；但枚举窗口时跳过了最顶层那个——
+          也就是你刚打开、正挡在卡片上的窗口。现在从最顶层逐个检查，遮挡判断如实生效，
+          窗口文字再也不会透过玻璃露出来。其余卡片帧与 4.12.0 逐像素一致。</p></div></div>
+        <div class="log"><div class="v">4.12.0</div><div><h4>零空转 · 体积腰斩 · 悬停修复</h4>
           <p>画面无变化就跳过整帧合成（空闲重绘 1.4 → 0 帧/秒），回收站改事件驱动 + 退避轮询，
           空闲 CPU 1.37% → 0.5%；内嵌图标 1920→512px + strip，exe <b>998,744 → 465,920 字节（-53%）</b>，
           启动 138→132ms；修复菜单悬停跨行串色，卡片帧逐像素完全一致。</p></div></div>
@@ -1093,19 +1097,19 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
         <div class="row">
           <img class="icon" src="assets/icon-256.png" alt="">
           <div>
-            <h2>下载 RecycleGlass 4.12.0</h2>
+            <h2>下载 RecycleGlass 4.12.1</h2>
             <p>Windows 10 2004+ / Windows 11 · 免安装单文件 · 双击即用<br>
               自带 MiSans 字体 · 开机自启可选 · 托盘常驻</p>
           </div>
           <div class="acts">
-            <a class="btn btn-p" href="assets/RecycleGlass-4.12.0.exe" download><svg><use href="#i-dl"/></svg>立即下载</a>
+            <a class="btn btn-p" href="assets/RecycleGlass-4.12.1.exe" download><svg><use href="#i-dl"/></svg>立即下载</a>
             <a class="btn btn-g" href="https://github.com/3335957485wyf-spec/RecycleGlass/releases" target="_blank" rel="noopener">历史版本<svg><use href="#i-arrow"/></svg></a>
           </div>
         </div>
         <div class="fine">
-          <span>文件名 <code>RecycleGlass-4.12.0.exe</code></span>
+          <span>文件名 <code>RecycleGlass-4.12.1.exe</code></span>
           <span>大小 <code>0.45 MB</code></span>
-          <span>SHA-256 <code>54395b63…b7fc</code></span>
+          <span>SHA-256 <code>f40dbe8c…425f</code></span>
           <span>MiSans © Xiaomi · 免费商用</span>
         </div>
       </div>
