@@ -121,10 +121,10 @@ h1 em{font-style:normal;background:linear-gradient(100deg,var(--a0),#9ee8ff 55%,
 html[data-page="light"] .stage::after{background:radial-gradient(closest-side,rgba(20,30,50,.42),rgba(20,30,50,.12) 55%,transparent 74%);opacity:.5}
 .stage::before{content:"";position:absolute;inset:6%;border-radius:36px;
   background:
-    radial-gradient(60% 70% at 22% 26%,rgba(150,110,255,.55),transparent 62%),
-    radial-gradient(55% 60% at 78% 30%,rgba(60,150,255,.45),transparent 60%),
-    radial-gradient(70% 70% at 55% 82%,rgba(255,150,80,.32),transparent 62%),
-    linear-gradient(160deg,#141021,#0a1220 60%,#0b1a18);
+    radial-gradient(60% 70% at 22% 26%,rgba(150,110,255,.38),transparent 62%),
+    radial-gradient(55% 60% at 78% 30%,rgba(60,150,255,.30),transparent 60%),
+    radial-gradient(70% 70% at 55% 82%,rgba(255,150,80,.18),transparent 62%),
+    linear-gradient(160deg,#0f0d1a,#08101c 60%,#0a1815);
   filter:blur(2px);opacity:.95;z-index:-1;animation:hue 26s ease-in-out infinite alternate;
   -webkit-mask-image:radial-gradient(closest-side,#000 55%,transparent 100%);
   mask-image:radial-gradient(closest-side,#000 55%,transparent 100%)}
@@ -240,10 +240,10 @@ input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;bac
 .preview{position:relative;display:grid;place-items:center;min-height:560px;isolation:isolate;border-radius:var(--u4)}
 .preview::before{content:"";position:absolute;inset:0;border-radius:var(--u4);
   background:
-    radial-gradient(58% 64% at 26% 22%,rgba(150,110,255,.5),transparent 64%),
-    radial-gradient(56% 58% at 76% 28%,rgba(56,150,255,.42),transparent 62%),
-    radial-gradient(64% 64% at 52% 86%,rgba(255,150,80,.3),transparent 64%),
-    linear-gradient(160deg,#131022,#0a1220 62%,#0b1a18);
+    radial-gradient(58% 64% at 26% 22%,rgba(150,110,255,.30),transparent 64%),
+    radial-gradient(56% 58% at 76% 28%,rgba(56,150,255,.24),transparent 62%),
+    radial-gradient(64% 64% at 52% 86%,rgba(255,150,80,.16),transparent 64%),
+    linear-gradient(160deg,#0e0c18,#080f1a 62%,#091410);
   z-index:-1;animation:hue 22s ease-in-out infinite alternate}
 html[data-page="light"] .preview::before{
   background:
@@ -254,6 +254,11 @@ html[data-page="light"] .preview::before{
 .hint{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--dim2);
   display:flex;gap:14px;white-space:nowrap}
 .hint b{color:var(--dim);font-weight:500}
+
+.matcap{position:absolute;left:18px;bottom:14px;z-index:3;font-size:11.5px;letter-spacing:.06em;
+  color:rgba(240,244,255,.72);background:rgba(10,12,18,.42);border:1px solid rgba(255,255,255,.14);
+  padding:5px 10px;border-radius:99px;backdrop-filter:blur(10px)}
+html[data-page="light"] .matcap{color:#313648;background:rgba(255,255,255,.6);border-color:rgba(20,30,50,.12)}
 
 /* timeline */
 .timeline{list-style:none;margin:0;padding:0;display:grid;gap:0;position:relative}
@@ -347,6 +352,97 @@ footer .wrap{display:flex;align-items:center;gap:var(--u4);flex-wrap:wrap}
 footer .sp{margin-left:auto;display:flex;gap:var(--u3)}
 footer a:hover{color:var(--tx)}
 
+
+/* ---------- material layers on every card ---------- */
+.wcard .gx{position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:2;overflow:hidden}
+/* crystal: chromatic rim, 1.5px, masked ring */
+.wcard .gx{background:conic-gradient(from 210deg,
+    rgba(255,160,195,.55),rgba(205,170,255,.5),rgba(160,205,255,.55),
+    rgba(170,245,225,.4),rgba(255,205,170,.35),rgba(255,160,195,.55));
+  padding:1.2px;
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  mask-composite:exclude;opacity:.55}
+.wcard[data-mat="crystal"] .gx{opacity:1;padding:1.8px;filter:saturate(1.5) brightness(1.2)}
+.wcard[data-mat="crystal"]{box-shadow:
+    0 1px 0 rgba(255,255,255,.45) inset,0 0 0 1px rgba(255,255,255,.22) inset,
+    0 -26px 46px -34px rgba(0,0,0,.45) inset,
+    0 6px 14px -6px rgba(0,0,0,.3),0 22px 44px -14px rgba(0,0,0,.4),
+    0 0 34px -8px rgba(170,150,255,.35)}
+/* aurora: flowing two-tone glow */
+.wcard[data-mat="aurora"] .gx{padding:0;background:
+    radial-gradient(60% 85% at 16% 8%,rgba(197,157,255,.6),transparent 62%),
+    radial-gradient(58% 75% at 85% 92%,rgba(84,224,203,.5),transparent 62%),
+    linear-gradient(112deg,transparent 26%,rgba(255,255,255,.22) 48%,transparent 68%);
+  background-size:auto,auto,240% 100%;mix-blend-mode:screen;
+  -webkit-mask:none;mask:none;
+  animation:auroraFlow 8.5s ease-in-out infinite alternate}
+@keyframes auroraFlow{from{background-position:0 0,100% 100%,120% 0}
+  to{background-position:35% 18%,62% 84%,-60% 0}}
+.wcard[data-mat="mist"]{--blur:40px}
+.wcard[data-mat="mist"] .gx{padding:0;background:linear-gradient(180deg,rgba(255,255,255,.46),rgba(255,255,255,.22));
+  -webkit-mask:none;mask:none}
+.wcard[data-mat="mist"] .gx::after{content:"";position:absolute;inset:0;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='.5'/></svg>");
+  opacity:.72;mix-blend-mode:overlay}
+.mat-stage{position:relative;height:132px;border-radius:16px;overflow:hidden;margin-bottom:14px;isolation:isolate;
+  background:
+    radial-gradient(60% 70% at 24% 20%,rgba(150,110,255,.5),transparent 64%),
+    radial-gradient(60% 70% at 78% 80%,rgba(70,190,170,.42),transparent 62%),
+    linear-gradient(160deg,#171226,#0b1522 60%,#0d1f1b)}
+.mat-stage .wcard{position:absolute;left:50%;top:50%;margin:-67px 0 0 -170px;--lift:0px}
+.mat[aria-pressed="true"] .mat-stage{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--a0) 60%,transparent)}
+.mat h4 span{font-size:11px;letter-spacing:.14em;color:var(--dim2);font-weight:400;margin-left:6px;text-transform:uppercase}
+
+/* ---------- spotlight + scroll progress ---------- */
+.spot{position:fixed;left:0;top:0;width:640px;height:640px;margin:-320px 0 0 -320px;border-radius:50%;
+  pointer-events:none;z-index:1;opacity:0;transition:opacity .4s;
+  background:radial-gradient(closest-side,color-mix(in srgb,var(--a0) 26%,transparent),transparent 70%);
+  filter:blur(30px);mix-blend-mode:screen}
+html[data-page="light"] .spot{mix-blend-mode:multiply;opacity:0}
+.spot.on{opacity:.55}
+html[data-page="light"] .spot.on{opacity:.22}
+.prog2{position:fixed;left:0;top:0;height:2px;width:0;z-index:60;
+  background:linear-gradient(90deg,var(--a0),#9ee8ff 55%,var(--a1));
+  box-shadow:0 0 12px color-mix(in srgb,var(--a1) 70%,transparent);transition:width .12s linear}
+
+/* ---------- hero extras ---------- */
+.beam{position:absolute;inset:-12%;z-index:-2;pointer-events:none;opacity:.5;
+  background:conic-gradient(from 140deg at 50% 50%,transparent 0deg,
+    color-mix(in srgb,var(--a0) 22%,transparent) 40deg,transparent 120deg,
+    color-mix(in srgb,var(--a1) 18%,transparent) 210deg,transparent 300deg);
+  filter:blur(46px);opacity:.34;animation:spin 44s linear infinite}
+@keyframes spin{to{transform:rotate(1turn)}}
+.parts{position:absolute;inset:0;z-index:-1;pointer-events:none}
+.parts i{position:absolute;width:3px;height:3px;border-radius:50%;background:rgba(255,255,255,.55);
+  box-shadow:0 0 8px rgba(200,215,255,.8);animation:float 9s ease-in-out infinite}
+html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8px rgba(120,110,200,.5)}
+.parts i:nth-child(1){left:12%;top:24%;animation-delay:-1s}
+.parts i:nth-child(2){left:84%;top:18%;animation-delay:-3s;width:2px;height:2px}
+.parts i:nth-child(3){left:76%;top:72%;animation-delay:-5s}
+.parts i:nth-child(4){left:22%;top:78%;animation-delay:-2s;width:2px;height:2px}
+.parts i:nth-child(5){left:48%;top:8%;animation-delay:-7s}
+.parts i:nth-child(6){left:92%;top:48%;animation-delay:-4s;width:2px;height:2px}
+@keyframes float{0%,100%{transform:translateY(0) scale(1);opacity:.5}
+  50%{transform:translateY(-16px) scale(1.25);opacity:1}}
+
+/* ---------- marquee ---------- */
+.marquee{overflow:hidden;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  background:color-mix(in srgb,var(--panel) 55%,transparent);backdrop-filter:blur(12px)}
+.mq{display:flex;gap:44px;width:max-content;padding:14px 0;animation:mq 34s linear infinite;
+  font-size:12.5px;color:var(--dim);white-space:nowrap;letter-spacing:.06em}
+.mq b{color:var(--tx);font-weight:600}
+.mq i{color:var(--a0);font-style:normal}
+@keyframes mq{to{transform:translateX(-50%)}}
+.marquee:hover .mq{animation-play-state:paused}
+
+/* ---------- section index + header accent ---------- */
+.section{counter-increment:sec}
+.shead h2{position:relative}
+.tagline::before{content:"0" counter(sec) " · ";color:var(--a0);letter-spacing:.1em}
+/* cards shimmer on hover */
+.wcard:hover .gx{filter:saturate(1.35) brightness(1.06)}
+
 /* reveal */
 .rv{opacity:0;transform:translateY(20px);transition:opacity .8s cubic-bezier(.22,1,.36,1),transform .8s cubic-bezier(.22,1,.36,1)}
 .rv.in{opacity:1;transform:none}
@@ -384,6 +480,8 @@ footer a:hover{color:var(--tx)}
 <body>
 <div class="wall" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <div class="grain" aria-hidden="true"></div>
+<div class="spot" id="spot" aria-hidden="true"></div>
+<div class="prog2" id="prog2" aria-hidden="true"></div>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
@@ -456,7 +554,10 @@ footer a:hover{color:var(--tx)}
       </div>
 
       <div class="stage">
+        <div class="beam" aria-hidden="true"></div>
+        <div class="parts" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
         <div class="wcard" id="heroCard" data-theme="dark">
+          <i class="gx"></i>
           <div class="wc-in">
             <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
             <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
@@ -468,6 +569,17 @@ footer a:hover{color:var(--tx)}
     </div>
   </section>
 
+
+  <div class="marquee" aria-hidden="true">
+    <div class="mq">
+      <span><i>φ</i> 1.618 间距标尺</span><span><b>MiSans</b> 官方字体</span>
+      <span>exe <b>0.98 MB</b></span><span><b>236</b> 字子集</span><span>菜单 <b>60 fps</b></span>
+      <span>空闲 CPU <b>≈ 0%</b></span><span>圆角 <b>12–52 px</b> 无级</span><span><b>截图可见</b> 零拖影</span>
+      <span><i>φ</i> 1.618 间距标尺</span><span><b>MiSans</b> 官方字体</span>
+      <span>exe <b>0.98 MB</b></span><span><b>236</b> 字子集</span><span>菜单 <b>60 fps</b></span>
+      <span>空闲 CPU <b>≈ 0%</b></span><span>圆角 <b>12–52 px</b> 无级</span><span><b>截图可见</b> 零拖影</span>
+    </div>
+  </div>
 
   <!-- ============ journey ============ -->
   <section class="section" id="journey">
@@ -596,6 +708,7 @@ footer a:hover{color:var(--tx)}
 
         <div class="preview rv">
           <div class="wcard" id="demoCard" data-theme="dark" style="--r:52">
+            <i class="gx"></i>
             <div class="wc-in">
               <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
               <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
@@ -618,21 +731,38 @@ footer a:hover{color:var(--tx)}
       </div>
       <div class="mats rv" id="mats">
         <button class="mat" data-m="crystal" aria-pressed="true">
-          <span class="dot"></span><h4>晶体</h4><p>清晰的边缘折射与色散，最接近一块实心的圆水晶。</p>
+          <div class="mat-stage"><div class="wcard" data-mat="crystal" style="--r:40;--s:.56">
+            <i class="gx"></i>
+            <div class="wc-in"><div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
+              <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div></div>
+          </div></div>
+          <h4>晶体 <span>Crystal</span></h4><p>色散边：R/B 通道走不同距离，边缘透出一圈虹彩，像实心的圆水晶。</p>
         </button>
         <button class="mat" data-m="aurora" aria-pressed="false">
-          <span class="dot"></span><h4>极光</h4><p>斜向的双色辉光在玻璃里缓慢流动，强调色因此活了起来。</p>
+          <div class="mat-stage"><div class="wcard" data-mat="aurora" style="--r:40;--s:.56">
+            <i class="gx"></i>
+            <div class="wc-in"><div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
+              <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div></div>
+          </div></div>
+          <h4>极光 <span>Aurora</span></h4><p>斜向双色辉光在玻璃里缓慢流动，强调色参与折射，整块材质是活的。</p>
         </button>
         <button class="mat" data-m="mist" aria-pressed="false">
-          <span class="dot"></span><h4>绒雾</h4><p>压低的对比与细密颗粒，像磨砂后又被岁月抚过的老玻璃。</p>
+          <div class="mat-stage"><div class="wcard" data-mat="mist" style="--r:40;--s:.56">
+            <i class="gx"></i>
+            <div class="wc-in"><div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
+              <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div></div>
+          </div></div>
+          <h4>绒雾 <span>Mist</span></h4><p>更深的模糊、压低的对比与细密颗粒，像磨砂后被岁月抚过的老玻璃。</p>
         </button>
       </div>
       <div class="matspec rv">
         <div class="big">
           <i></i><i></i>
+          <div class="matcap" id="matCap">晶体 · 色散边 1.2 px</div>
           <div class="wl">
             <div class="wcard" id="matCard" data-theme="dark" style="--r:52;--s:.86">
-              <div class="wc-in">
+              <i class="gx"></i>
+            <div class="wc-in">
                 <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
                 <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
               </div>
@@ -672,6 +802,7 @@ footer a:hover{color:var(--tx)}
 已回收 2 项
 正在清空… 剩余 128 项</div>
           <div class="wcard" id="frostCard" data-theme="dark">
+            <i class="gx"></i>
             <div class="wc-in">
               <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
               <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
@@ -901,14 +1032,28 @@ footer a:hover{color:var(--tx)}
   syncIcons();
 
   const matCard=$('#matCard');
-  const MAT={crystal:{blur:22,sat:1.5,c:''},aurora:{blur:26,sat:1.7,c:'aurora'},mist:{blur:30,sat:1.1,c:'mist'}};
+  const MAT={crystal:{blur:22,sat:1.35},aurora:{blur:26,sat:1.6},mist:{blur:38,sat:1.02}};
   $$('#mats .mat').forEach(b=>b.addEventListener('click',()=>{
     $$('#mats .mat').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
     const m=MAT[b.dataset.m];
+    matCard.dataset.mat=b.dataset.m;
+    const CAP={crystal:'晶体 · 色散边 1.2 px',aurora:'极光 · 双色辉光流动',mist:'绒雾 · 乳白磨砂 + 颗粒'};
+    const cap=$('#matCap'); if(cap) cap.textContent=CAP[b.dataset.m];
     matCard.style.setProperty('--blur',m.blur+'px');
     matCard.style.filter=`saturate(${m.sat})`;
-    matCard.dataset.mat=m.c;
   }));
+  matCard.dataset.mat='crystal';
+
+  /* cursor spotlight + scroll progress */
+  const spot=$('#spot'), prog=$('#prog2');
+  let sx=innerWidth/2, sy=innerHeight/2, tx=sx, ty=sy;
+  addEventListener('pointermove',e=>{tx=e.clientX;ty=e.clientY;spot.classList.add('on');},{passive:true});
+  addEventListener('pointerleave',()=>spot.classList.remove('on'));
+  const tickSpot=()=>{sx+=(tx-sx)*.12;sy+=(ty-sy)*.12;
+    spot.style.transform=`translate(${sx}px,${sy}px)`;
+    prog.style.width=(scrollY/(document.body.scrollHeight-innerHeight)*100)+'%';
+    requestAnimationFrame(tickSpot);};
+  tickSpot();
 
   const oRange=$('#oRange'), bRange=$('#bRange');
   const oVal=$('#oVal'), bVal=$('#bVal'), frostCard=$('#frostCard');
