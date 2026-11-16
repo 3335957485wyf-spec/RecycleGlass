@@ -68,18 +68,16 @@
 
 <div align="center">
 
-<img src="docs/images/hero.png" width="900" alt="RecycleGlass：把回收站装进一块玻璃">
+<img src="docs/images/hero.png" width="900" alt="RecycleGlass 4.11.1：把回收站装进一块玻璃">
 
 <br>
 
-<img src="docs/images/menu.png" width="560" alt="外观设置：主题 / 强调色 / 界面大小 / 圆角 / 图标">
-<img src="docs/images/material.png" width="560" alt="三种玻璃材质：晶体 / 极光 / 绒雾">
+<img src="docs/images/settings.png" width="860" alt="外观设置与材质与光效：真实窗口截屏">
+<img src="docs/images/states.png" width="820" alt="卡片与清空确认：真实窗口截屏">
 
 <br>
 
-<img src="docs/images/frost.png" width="760" alt="透明度 × 模糊：拉低透明度也始终保留磨砂">
-
-<sub>界面按 4.11.1 的真实渲染参数 1:1 绘制（圆角 52 px · MiSans · φ 间距）</sub>
+<sub>以上均为 4.11.1 真实窗口截屏（未做界面重绘），背景为同一桌面的虚化底</sub>
 
 </div>
 
