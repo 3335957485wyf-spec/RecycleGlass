@@ -474,19 +474,29 @@ static void invalidate_backdrop(void)
 
 /* Backdrop source and display affinity.
  *
- * The source follows the Z-ORDER, because that is what the user is looking at:
+ * The source follows what is literally behind the glass:
  *
- *   always on top -> the card floats above other windows, so it samples the
- *                    real screen and frosts whatever is actually behind it;
- *   not on top    -> it is a desktop widget, so it samples the DESKTOP itself
- *                    (wallpaper + the icons the user arranged) and other
- *                    applications never bleed into the glass.
+ *   always on top            -> sample the real screen and frost whatever is
+ *                               actually behind the card;
+ *   not on top, desktop only -> sample the DESKTOP itself (wallpaper + the
+ *                               icons the user arranged); other applications
+ *                               never bleed into the glass;
+ *   not on top, but a window -> switch to the live screen as well, so the
+ *                               window under the glass is frosted by the
+ *                               backdrop itself and the translucent body
+ *                               never shows sharp text through it.  Without
+ *                               this the opacity slider would have to be
+ *                               pinned at 1.0 to hide the leak - and the
+ *                               slider would stop working (4.12.1 regression).
  *
  * The desktop grab is done by the desktop window itself (see glass.c), which
  * is why it can include icons without including windows. */
+static BOOL window_behind_card(void);
+
 static void init_capture(void)
 {
-    BOOL live = g_cfg.topmost && glass_live_available();
+    BOOL live = (g_cfg.topmost || window_behind_card())
+                && glass_live_available();
 
     g_live_backdrop = FALSE;
     glass_set_capture_visible(g_cfg.capture_visible);
@@ -516,7 +526,8 @@ static void init_capture(void)
         return;
 
     g_live_backdrop = TRUE;
-    diag(L"backdrop=screen topmost=1 capture_visible=%d",
+    diag(L"backdrop=screen topmost=%d behind=%d capture_visible=%d",
+         (int)g_cfg.topmost, (int)(!g_cfg.topmost && window_behind_card()),
          (int)g_cfg.capture_visible);
 }
 
@@ -541,17 +552,19 @@ static BOOL window_cloaked(HWND w)
     return fn(w, 14 /* DWMWA_CLOAKED */, &cloaked, sizeof(cloaked)) == 0 && cloaked;
 }
 
-/* Is any other application's window overlapping the card right now?
+/* Is any other application's window BEHIND the card right now (i.e. lower in
+ * the z-order and overlapping it)?
  *
  * The body is translucent (alpha follows the opacity slider), so whatever is
  * literally behind the window - including another app - blends with the glass.
- * In "not on top" mode the card is supposed to show ONLY the desktop, so when
- * a window really is behind it we bake the body opaque: the frosted desktop
- * stays exactly the same, but nothing can bleed through it.
+ * Windows ABOVE the card are irrelevant: they simply cover it, and the part
+ * they cover is never seen.  Only a window UNDER the glass can bleed through,
+ * and when one does, the backdrop switches to the live screen (see
+ * overlap_follow) so the frost and the leak show the same content.
  *
  * The list is queried at most a few times a second: enumerating ~20 top-level
  * windows is cheap, but this runs from the render path. */
-static BOOL window_overlaps_card(void)
+static BOOL window_behind_card(void)
 {
     static ULONGLONG checked_at;
     static BOOL cached;
@@ -568,16 +581,24 @@ static BOOL window_overlaps_card(void)
 
     {
         HWND w;
-        /* Walk the full z-order, starting AT the topmost window.  The old
-         * loop advanced with GetWindow() before inspecting w, which silently
-         * skipped the topmost window - exactly the freshly-opened window that
-         * covers the card - so the "bake opaque" condition never fired there. */
+        BOOL below = FALSE;
+        /* Walk the full z-order from the top.  Everything up to (and
+         * excluding) our own window sits ABOVE the card and is skipped - it
+         * covers the card instead of bleeding through it.  The old loop
+         * advanced with GetWindow() before inspecting w, silently skipping
+         * the topmost window; and it also counted windows above the card,
+         * which pinned the body opaque and froze the opacity slider. */
         for (w = GetTopWindow(NULL); w; w = GetWindow(w, GW_HWNDNEXT))
         {
             RECT r;
             wchar_t cls[64];
 
             if (w == g_hwnd)
+            {
+                below = TRUE;
+                continue;
+            }
+            if (!below)
                 continue;
             if (!IsWindowVisible(w) || IsIconic(w))
                 continue;
@@ -605,6 +626,38 @@ static BOOL window_overlaps_card(void)
     }
 
     return cached = found;
+}
+
+/* Keep "not on top" sampling in sync with what is behind the card.  While only
+ * the desktop is there the backdrop stays the desktop grab; the moment another
+ * window slides UNDER the glass, the backdrop switches to the live screen -
+ * the same source "always on top" uses - so the frosted backdrop and whatever
+ * bleeds through the translucent body are the same pixels.  When the window
+ * goes away we switch back to the desktop.  Runs from the render path; both
+ * the overlap query and the mode flip are cached, so this is a no-op almost
+ * every frame.
+ *
+ * No invalidate here: ensure_backdrop() skips cached backdrops whose source
+ * (g_backdrop_live) no longer matches the active mode, so the flip swaps
+ * sources in place - desktop -> screen keeps the old frame until the first
+ * live capture lands (no wallpaper flash), screen -> desktop rebuilds the
+ * desktop grab in the same frame (no stale frost). */
+static void overlap_follow(void)
+{
+    BOOL want;
+
+    if (g_cfg.topmost || !glass_live_available())
+        return;
+
+    want = window_behind_card();
+    if (want == g_live_backdrop)
+        return;
+
+    init_capture();
+    if (g_live_backdrop)
+        glass_live_set_target(g_hwnd);
+    diag(L"overlap_follow: behind=%d -> backdrop=%s", (int)want,
+         g_live_backdrop ? L"screen" : L"desktop");
 }
 
 static void ensure_backdrop(void)
@@ -655,6 +708,7 @@ static void ensure_backdrop(void)
         return;
 
     if (g_backdrop_valid &&
+        g_backdrop_live == g_live_backdrop &&
         g_backdrop_x == bx && g_backdrop_y == by &&
         g_backdrop.w == bw && g_backdrop.h == bh &&
         g_backdrop_blur == g_cfg.blur_radius &&
@@ -875,6 +929,11 @@ static void refresh(void)
     if (prof)
         tA = now_us();
 
+    /* Keep the backdrop source in sync with what is behind the card (desktop
+     * vs live screen).  Must run before ensure_backdrop() so a mode flip
+     * rebuilds the backdrop with the new source in the same frame. */
+    overlap_follow();
+
     ensure_backdrop();
 
     if (prof)
@@ -898,10 +957,15 @@ static void refresh(void)
     st.btn_t[0] = g_btn_t[0];
     st.btn_t[1] = g_btn_t[1];
     st.hover_t = g_hover_t;
-    /* Not on top + a window really behind the card: bake the glass opaque so
-     * that window cannot bleed through.  On top (or on a clear desktop) the
-     * body keeps its normal translucency. */
-    st.opacity = (!g_cfg.topmost && window_overlaps_card()) ? 1.0f : g_cfg.opacity;
+    /* The opacity slider owns the body alpha in every mode.  The "window
+     * bleeds through the glass" case is handled at the SOURCE now: when a
+     * window is behind the card, the backdrop itself switches to the live
+     * screen and frosts that window, so the few percent of true translucency
+     * shows the same content the backdrop already blurred.  Baking the body
+     * opaque here (4.11.6..4.12.1) silenced the leak but also pinned the
+     * slider - the user could not change transparency at all while any window
+     * touched the card. */
+    st.opacity = g_cfg.opacity;
     st.material = g_cfg.material;
     st.drag_hover = g_drag_hover;
     st.has_fx = g_fx_active;
