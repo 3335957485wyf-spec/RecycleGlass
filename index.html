@@ -36,6 +36,7 @@ html[data-page="light"]{
   --glassTint:rgba(252,252,255,.62); --thumbA:#ffffff; --thumbB:#eef1f8;
   --segBg:rgba(16,20,32,.08); --hoverWash:rgba(16,20,32,.05);
   --wallA:#a9bce6; --wallB:#cfe2f6; --wallC:#cfe4da; --wallD:#f0d9b8;
+  --a0:#7d5cff; --a1:#4d3ad6;
   --shadow:0 24px 60px rgba(24,32,54,.20);
 }
 *{box-sizing:border-box}
@@ -71,7 +72,7 @@ main,header,footer{position:relative;z-index:2}
   border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--bg) 62%,transparent)}
 .nav .wrap{display:flex;align-items:center;gap:var(--u3);height:64px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.01em;flex:none;white-space:nowrap}
-.brand svg{width:24px;height:24px;border-radius:7px;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+.brand img{width:24px;height:24px;border-radius:7px;box-shadow:0 2px 8px rgba(0,0,0,.35)}
 .brand b{font-size:16px}
 .brand small{color:var(--dim2);font-size:11px;font-weight:400;letter-spacing:.08em}
 nav.links{display:flex;gap:var(--u3);margin-left:auto;font-size:13.5px;color:var(--dim)}
@@ -113,14 +114,20 @@ h1 em{font-style:normal;background:linear-gradient(100deg,var(--a0),#9ee8ff 55%,
 .meta i{width:4px;height:4px;border-radius:50%;background:var(--dim2)}
 
 /* ---------- the card (the product itself) ---------- */
-.stage{position:relative;height:430px;display:grid;place-items:center;isolation:isolate}
+.stage{position:relative;height:440px;display:grid;place-items:center;isolation:isolate;perspective:1300px;perspective-origin:50% 42%}
+.stage::after{content:"";position:absolute;left:50%;top:50%;width:300px;height:52px;margin:112px 0 0 -150px;
+  background:radial-gradient(closest-side,rgba(0,0,0,.5),rgba(0,0,0,.14) 55%,transparent 74%);
+  filter:blur(20px);z-index:-1;opacity:.55;pointer-events:none}
+html[data-page="light"] .stage::after{background:radial-gradient(closest-side,rgba(20,30,50,.42),rgba(20,30,50,.12) 55%,transparent 74%);opacity:.5}
 .stage::before{content:"";position:absolute;inset:6%;border-radius:36px;
   background:
     radial-gradient(60% 70% at 22% 26%,rgba(150,110,255,.55),transparent 62%),
     radial-gradient(55% 60% at 78% 30%,rgba(60,150,255,.45),transparent 60%),
     radial-gradient(70% 70% at 55% 82%,rgba(255,150,80,.32),transparent 62%),
     linear-gradient(160deg,#141021,#0a1220 60%,#0b1a18);
-  filter:blur(2px);opacity:.95;z-index:-1;animation:hue 26s ease-in-out infinite alternate}
+  filter:blur(2px);opacity:.95;z-index:-1;animation:hue 26s ease-in-out infinite alternate;
+  -webkit-mask-image:radial-gradient(closest-side,#000 55%,transparent 100%);
+  mask-image:radial-gradient(closest-side,#000 55%,transparent 100%)}
 html[data-page="light"] .stage::before{
   background:
     radial-gradient(60% 70% at 22% 26%,rgba(160,190,255,.9),transparent 62%),
@@ -129,13 +136,19 @@ html[data-page="light"] .stage::before{
     linear-gradient(160deg,#e9eefb,#f3efe6 60%,#e7f2ec);opacity:.9}
 @keyframes hue{to{filter:blur(2px) hue-rotate(26deg)}}
 
-.wcard{--r:52px;--s:1.62;--blur:22px;--tint:.52;--lift:0px;
+.wcard{--r:52;--s:1.62;--blur:22px;--tint:.52;--lift:0px;
   position:relative;width:340px;height:133px;border-radius:calc(var(--r) * 1px);
   background:
     linear-gradient(180deg,rgba(255,255,255,.14),transparent 46%,rgba(6,8,14,.20)),
     linear-gradient(150deg,rgba(22,24,34,calc(var(--tint) * 1.02)),rgba(16,18,27,calc(var(--tint) * .88)));
   backdrop-filter:blur(var(--blur)) saturate(1.5);-webkit-backdrop-filter:blur(var(--blur)) saturate(1.5);
-  box-shadow:var(--shadow),inset 0 0 0 1px rgba(255,255,255,.16),inset 0 1px 0 rgba(255,255,255,.3);
+  box-shadow:/n    0 1px 0 rgba(255,255,255,.28) inset,
+    0 0 0 1px rgba(255,255,255,.14) inset,
+    0 -26px 46px -34px rgba(0,0,0,.5) inset,
+    0 6px 14px -6px rgba(0,0,0,.32),
+    0 22px 44px -14px rgba(0,0,0,.42),
+    0 56px 100px -34px rgba(0,0,0,.55);
+  transform-style:preserve-3d;
   transform:scale(var(--s)) translateY(var(--lift));
   transition:border-radius .28s cubic-bezier(.22,1,.36,1),transform .34s cubic-bezier(.22,1,.36,1),box-shadow .3s;
   cursor:default;user-select:none}
@@ -146,13 +159,15 @@ html[data-page="light"] .stage::before{
   background:radial-gradient(240px 160px at var(--gx,30%) var(--gy,20%),rgba(255,255,255,.16),transparent 65%);
   opacity:0;transition:opacity .4s}
 .wcard:hover::after{opacity:1}
-.wc-in{position:absolute;inset:0;display:flex;align-items:center;gap:19px;padding-left:30px}
+.wc-in{position:absolute;inset:0;display:flex;align-items:center;gap:19px;padding-left:30px;transform-style:preserve-3d}
 .wc-icon{width:64px;height:64px;border-radius:19px;flex:none;position:relative;
-  filter:drop-shadow(0 6px 14px rgba(0,0,0,.28))}
+  filter:drop-shadow(0 10px 18px rgba(0,0,0,.34));transform:translateZ(26px)}
+.wc-icon img{width:100%;height:100%;display:block;border-radius:6px}
 .wc-icon svg{width:100%;height:100%}
+.wc-tx{transform:translateZ(14px)}
 .wc-tx h3{margin:0 0 6px;font-size:22px;font-weight:700;letter-spacing:.01em;color:#f6f7fb}
 .wc-tx p{margin:0;font-size:16px;color:rgba(226,230,240,.78);font-variant-numeric:tabular-nums}
-.wc-dots{position:absolute;right:22px;top:27px;display:flex;gap:4px}
+.wc-dots{position:absolute;right:22px;top:27px;display:flex;gap:4px;transform:translateZ(18px)}
 .wc-dots i{width:4px;height:4px;border-radius:50%;background:rgba(240,244,252,.55)}
 .wcard[data-theme="light"]{background:
     linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.12) 46%,rgba(140,150,175,.10)),
@@ -239,6 +254,20 @@ html[data-page="light"] .preview::before{
 .hint{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--dim2);
   display:flex;gap:14px;white-space:nowrap}
 .hint b{color:var(--dim);font-weight:500}
+
+/* timeline */
+.timeline{list-style:none;margin:0;padding:0;display:grid;gap:0;position:relative}
+.timeline::before{content:"";position:absolute;left:66px;top:14px;bottom:14px;width:1px;background:linear-gradient(var(--line2),transparent)}
+.timeline li{display:grid;grid-template-columns:132px 1fr;gap:var(--u4);padding:22px 0;position:relative}
+.timeline li::before{content:"";position:absolute;left:62px;top:32px;width:9px;height:9px;border-radius:50%;
+  background:linear-gradient(135deg,var(--a0),var(--a1));box-shadow:0 0 0 4px color-mix(in srgb,var(--bg) 70%,transparent)}
+.timeline .v{font-family:ui-monospace,Consolas,monospace;font-size:15px;font-weight:700;color:var(--a0);
+  padding-top:6px;letter-spacing:.02em}
+.timeline h4{margin:0 0 8px;font-size:17px;letter-spacing:-.01em}
+.timeline p{margin:0;font-size:14px;line-height:1.9;color:var(--dim);max-width:70ch}
+.timeline p b{color:var(--tx);font-weight:600}
+
+html[data-page="light"] .timeline .v{color:#5b3fd6}
 
 /* material */
 .mats{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u4);margin-top:var(--u5)}
@@ -391,11 +420,11 @@ footer a:hover{color:var(--tx)}
 <header class="nav">
   <div class="wrap">
     <a class="brand" href="#top">
-      <svg><use href="#appicon"/></svg>
+      <img src="assets/icon-64.png" alt="" width="24" height="24">
       <b>RecycleGlass</b><small>4.11.1</small>
     </a>
     <nav class="links">
-      <a href="#demo">演示</a><a href="#material">材质</a><a href="#frost">磨砂</a>
+      <a href="#journey">演进</a><a href="#demo">演示</a><a href="#material">材质</a><a href="#frost">磨砂</a>
       <a href="#type">字体</a><a href="#whatsnew">更新</a><a href="#download">下载</a>
     </nav>
     <div class="themeseg" role="group" aria-label="页面主题">
@@ -429,13 +458,72 @@ footer a:hover{color:var(--tx)}
       <div class="stage">
         <div class="wcard" id="heroCard" data-theme="dark">
           <div class="wc-in">
-            <div class="wc-icon"><svg><use href="#appicon"/></svg></div>
+            <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
             <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
           </div>
           <div class="wc-dots"><i></i><i></i><i></i></div>
           <div class="pills"><span class="pill p">打开</span><span class="pill g">清空</span></div>
         </div>
       </div>
+    </div>
+  </section>
+
+
+  <!-- ============ journey ============ -->
+  <section class="section" id="journey">
+    <div class="wrap">
+      <div class="shead rv">
+        <div><p class="tagline">Evolution</p><h2>3.0 → 4.0 → 4.11.0<br>一次彻底的重写</h2></div>
+        <p>回收站挂件从 Python 原型到纯 C 单文件，三年里最重要的三次跃迁，
+          每一代都解决了上一代最痛的那个问题。</p>
+      </div>
+      <ol class="timeline rv">
+        <li>
+          <div class="v">3.0</div>
+          <div>
+            <h4>Python 原型 · 方向验证</h4>
+            <p>用 PySide 快速验证「玻璃 + 桌面挂件」的可行性：材质方向成立，但
+              <b>PyInstaller 打包 30 MB+、冷启动 1–2 秒、常驻内存 150 MB</b>，
+              对一个桌面小挂件来说太重了。</p>
+          </div>
+        </li>
+        <li>
+          <div class="v">4.0</div>
+          <div>
+            <h4>纯 C 重写 · 0.83 MB 单文件</h4>
+            <p>GDI+ 分层窗口全自绘：圆角盒 SDF 蒙版、背景实时采样、边缘折射色散；
+              无框架、无运行时依赖，<b>exe 0.83 MB、启动即显（&lt;100 ms）、空闲 CPU ≈ 0%</b>；
+              自带无边框拖拽、CF_HDROP 拖放回收、托盘常驻与单实例。</p>
+          </div>
+        </li>
+        <li>
+          <div class="v">4.5–4.9</div>
+          <div>
+            <h4>玻璃打磨 · 稳定 60 fps</h4>
+            <p>面板缓存 + 命中测试：右键菜单从 30 fps 抖动到 <b>60 fps 稳定</b>；
+              抓屏瞬间临时排除自身窗口（WDA），<b>截图可见且零拖影/鬼影</b>；
+              φ 间距与同心圆角上线，图标左/上/下留白恒等。</p>
+          </div>
+        </li>
+        <li>
+          <div class="v">4.10</div>
+          <div>
+            <h4>磨砂可见性重构 · 胶囊滑块</h4>
+            <p>覆盖率改为「高下限 + 窄跨度」（0.62 + 0.38 × 透明度），
+              <b>透明度拉低也始终有磨砂</b>；分段控件重做为 2 px 内缩的饱满胶囊；
+              圆角无级 12–52 px，间距随圆角按 φ 联动。</p>
+          </div>
+        </li>
+        <li>
+          <div class="v">4.11</div>
+          <div>
+            <h4>MiSans 嵌入 · 排版收口</h4>
+            <p>全应用切换小米官方 MiSans，文字改为<b>实测高度视觉居中</b>（修复中文偏高 1–2 px）；
+              只嵌入界面用到的 <b>236 个字符</b>，双字重子集共 124 KB，
+              <b>exe 0.98 MB 单文件自带字体</b>，换机换语言字形都不跑。</p>
+          </div>
+        </li>
+      </ol>
     </div>
   </section>
 
@@ -509,7 +597,7 @@ footer a:hover{color:var(--tx)}
         <div class="preview rv">
           <div class="wcard" id="demoCard" data-theme="dark" style="--r:52">
             <div class="wc-in">
-              <div class="wc-icon"><svg><use href="#appicon"/></svg></div>
+              <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
               <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
             </div>
             <div class="wc-dots"><i></i><i></i><i></i></div>
@@ -545,7 +633,7 @@ footer a:hover{color:var(--tx)}
           <div class="wl">
             <div class="wcard" id="matCard" data-theme="dark" style="--r:52;--s:.86">
               <div class="wc-in">
-                <div class="wc-icon"><svg><use href="#appicon"/></svg></div>
+                <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
                 <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
               </div>
               <div class="wc-dots"><i></i><i></i><i></i></div>
@@ -585,7 +673,7 @@ footer a:hover{color:var(--tx)}
 正在清空… 剩余 128 项</div>
           <div class="wcard" id="frostCard" data-theme="dark">
             <div class="wc-in">
-              <div class="wc-icon"><svg><use href="#appicon"/></svg></div>
+              <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
               <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
             </div>
             <div class="wc-dots"><i></i><i></i><i></i></div>
@@ -658,7 +746,7 @@ footer a:hover{color:var(--tx)}
     <div class="wrap">
       <div class="dl rv">
         <div class="row">
-          <svg class="icon"><use href="#appicon"/></svg>
+          <img class="icon" src="assets/icon-256.png" alt="">
           <div>
             <h2>下载 RecycleGlass 4.11.1</h2>
             <p>Windows 10 2004+ / Windows 11 · 免安装单文件 · 双击即用<br>
@@ -736,6 +824,7 @@ footer a:hover{color:var(--tx)}
       card.style.setProperty('--a0','#9fb6e8');card.style.setProperty('--a1','#5d78c8');
     }
     $$('.seg',menu).forEach(s=>s.dataset.look=st.theme);
+    if(typeof syncIcons==='function') syncIcons();
   };
 
   $$('.seg').forEach(seg=>{
@@ -787,12 +876,29 @@ footer a:hover{color:var(--tx)}
     rRange.value=52;syncFill(rRange);paint();
   });
 
+  /* 3D tilt + glare: the glass feels like a slab, not a screenshot */
   const hero=$('#heroCard');
+  const ICONS=['glacier','violet','mint','peach','amber','lime'];
+  const syncIcons=()=>{
+    const src = st.icon==='classic' ? 'assets/icon-original.png'
+                                    : `assets/icon-${ICONS[st.accent]}.png`;
+    ['#demoCard','#heroCard','#matCard','#frostCard'].forEach(sel=>{
+      const img=$(sel+' .wc-icon img'); if(img) img.src=src;
+    });
+  };
   hero.addEventListener('pointermove',e=>{
     const r=hero.getBoundingClientRect();
+    const px=(e.clientX-r.left)/r.width-.5, py=(e.clientY-r.top)/r.height-.5;
     hero.style.setProperty('--gx',((e.clientX-r.left)/r.width*100)+'%');
     hero.style.setProperty('--gy',((e.clientY-r.top)/r.height*100)+'%');
+    hero.style.transform=`scale(var(--s)) rotateX(${(-py*11).toFixed(2)}deg) rotateY(${(px*13).toFixed(2)}deg) translateZ(26px)`;
   });
+  hero.addEventListener('pointerleave',()=>{
+    hero.style.transform='scale(var(--s)) translateZ(0)';
+    hero.style.transition='transform .6s cubic-bezier(.22,1,.36,1)';
+    setTimeout(()=>hero.style.transition='',620);
+  });
+  syncIcons();
 
   const matCard=$('#matCard');
   const MAT={crystal:{blur:22,sat:1.5,c:''},aurora:{blur:26,sat:1.7,c:'aurora'},mist:{blur:30,sat:1.1,c:'mist'}};
