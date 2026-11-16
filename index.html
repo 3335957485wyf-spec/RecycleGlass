@@ -278,30 +278,68 @@ html[data-page="light"] .matcap{color:#313648;background:rgba(255,255,255,.6);bo
 
 html[data-page="light"] .timeline .v{color:#5b3fd6}
 
-/* material */
+/* material — Xiaomi-style immersive glass gallery */
 .mats{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u4);margin-top:var(--u5)}
-.mat{padding:var(--u4);border:1px solid var(--line);border-radius:var(--u4);background:var(--panel);
-  transition:.3s;text-align:left;color:inherit}
-.mat[aria-pressed="true"]{border-color:color-mix(in srgb,var(--a0) 55%,transparent);
-  box-shadow:0 18px 50px rgba(110,90,255,.22);transform:translateY(-3px)}
-.mat h4{margin:0 0 6px;font-size:16px}
-.mat p{margin:0;font-size:13px;line-height:1.75;color:var(--dim)}
-.mat .dot{width:34px;height:34px;border-radius:11px;margin-bottom:var(--u2);position:relative;overflow:hidden;
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
-.mat .dot::after{content:"";position:absolute;inset:0;backdrop-filter:blur(6px)}
-.mat[data-m="crystal"] .dot{background:linear-gradient(140deg,#dfe8ff,#9fb6e8)}
-.mat[data-m="aurora"] .dot{background:linear-gradient(140deg,#c59dff,#6fd6c8 50%,#ffb27a)}
-.mat[data-m="mist"] .dot{background:linear-gradient(140deg,#e9edf5,#c9cfdd)}
-.matspec{margin-top:var(--u5);display:grid;grid-template-columns:1fr 1fr;gap:var(--u6);align-items:center}
-.matspec .big{position:relative;height:320px;border-radius:var(--u4);overflow:hidden;isolation:isolate;
-  background:linear-gradient(160deg,#1a1330,#0c1a24 60%,#0e221c)}
-.matspec .big i{position:absolute;border-radius:50%;filter:blur(40px)}
-.matspec .big i:nth-child(1){width:60%;height:70%;left:-8%;top:-10%;background:rgba(150,110,255,.55)}
-.matspec .big i:nth-child(2){width:55%;height:60%;right:-6%;bottom:-8%;background:rgba(80,200,180,.42)}
-.matspec .big .wl{position:absolute;inset:0;display:grid;place-items:center}
-.matspec ul{margin:var(--u3) 0 0;padding:0;list-style:none;display:grid;gap:var(--u2)}
-.matspec li{display:flex;gap:12px;font-size:14px;color:var(--dim);line-height:1.7}
-.matspec li b{color:var(--tx);font-weight:600;flex:none;min-width:76px}
+.mat{padding:0;border:1px solid var(--line);border-radius:var(--u5);background:var(--panel);
+  overflow:hidden;transition:transform .4s cubic-bezier(.22,1,.36,1),box-shadow .4s,border-color .4s;
+  text-align:left;color:inherit;display:block;width:100%}
+.mat:hover{transform:translateY(-6px);box-shadow:0 26px 60px -24px rgba(80,60,180,.35)}
+.mat[aria-pressed="true"]{border-color:color-mix(in srgb,var(--a0) 62%,transparent);
+  box-shadow:0 26px 64px -24px rgba(110,90,255,.42),0 0 0 1px color-mix(in srgb,var(--a0) 40%,transparent) inset}
+/* big soft-gradient canvas — Xiaomi-style immersive */
+.mat-stage{position:relative;height:340px;overflow:hidden;isolation:isolate}
+.mat-stage .wash{position:absolute;inset:-24%;filter:blur(34px);opacity:.98;
+  animation:washBreathe 9s ease-in-out infinite alternate}
+@keyframes washBreathe{from{transform:scale(1) rotate(0deg)}to{transform:scale(1.14) rotate(5deg)}}
+.mat:hover .mat-stage .wash{filter:blur(30px) saturate(1.25)}
+/* glass ribbon sweeping across, like HyperOS */
+.ribbon{position:absolute;left:-20%;right:-20%;height:120px;top:60%;z-index:1;
+  background:linear-gradient(100deg,transparent 4%,rgba(255,255,255,.4) 22%,rgba(180,220,255,.5) 46%,
+    rgba(120,200,180,.4) 66%,transparent 92%);
+  border-radius:50% 46% 48% 52%/60% 62% 40% 42%;
+  transform:rotate(-8deg);filter:blur(1px);
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 16%,#000 82%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 16%,#000 82%,transparent)}
+/* giant translucent glass number — sits behind the card */
+.bignum{position:absolute;left:50%;top:38%;z-index:2;transform:translate(-50%,-58%);
+  font-size:132px;font-weight:800;letter-spacing:.08em;line-height:1;white-space:nowrap;
+  color:rgba(255,255,255,.42);
+  text-shadow:0 1px 0 rgba(255,255,255,.45),0 -1px 1px rgba(0,0,0,.06);
+  -webkit-text-stroke:1.4px rgba(255,255,255,.62);pointer-events:none;user-select:none}
+html[data-page="light"] .bignum{color:rgba(255,255,255,.58);-webkit-text-stroke:1.4px rgba(255,255,255,.95);text-shadow:0 2px 12px rgba(90,100,160,.2)}
+.mat-stage .wcard{position:absolute;left:50%;top:68%;z-index:4;margin:-57px 0 0 -146px;--s:.86;
+  transition:transform .4s cubic-bezier(.22,1,.36,1)}
+.mat:hover .mat-stage .wcard{transform:scale(calc(var(--s) * 1.05)) translateY(-4px)}
+.mat-stage .tagx{position:absolute;left:14px;top:13px;z-index:5;padding:6px 11px;border-radius:99px;
+  font-size:10.5px;font-weight:700;letter-spacing:.08em;color:#fff;background:rgba(10,12,20,.32);
+  border:1px solid rgba(255,255,255,.25);backdrop-filter:blur(10px)}
+/* three distinct material washes */
+.mat[data-m="crystal"] .wash{background:
+  radial-gradient(58% 78% at 20% 16%,#c39bff 0%,transparent 62%),
+  radial-gradient(52% 68% at 82% 28%,#6fd0ff 0%,transparent 60%),
+  radial-gradient(50% 60% at 50% 96%,#9be6dd 0%,transparent 62%),
+  linear-gradient(150deg,#a99cf0,#79c6ee 52%,#8fdccd)}
+.mat[data-m="aurora"] .wash{background:
+  radial-gradient(58% 80% at 16% 20%,#e05cff 0%,transparent 60%),
+  radial-gradient(56% 76% at 84% 72%,#2fe8b0 0%,transparent 60%),
+  radial-gradient(50% 60% at 46% 92%,#7a6cff 0%,transparent 60%),
+  linear-gradient(150deg,#8e5cf0,#3aa8c8 52%,#2fb89a)}
+.mat[data-m="mist"] .wash{background:
+  radial-gradient(58% 80% at 24% 18%,#efe4fb 0%,transparent 62%),
+  radial-gradient(52% 70% at 80% 76%,#dceaf0 0%,transparent 60%),
+  linear-gradient(150deg,#e2dcf0,#d6e2ec 52%,#dfeae5)}
+/* material surface effects are defined once, near the end of this sheet */
+.mat-info{padding:var(--u4)}
+.mat-info .mh{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.mat-info .mh b{font-size:18px;letter-spacing:-.01em}
+.mat-info .mh span{font-size:10.5px;letter-spacing:.14em;color:var(--a0);font-weight:700;text-transform:uppercase}
+.mat-info p{margin:0;font-size:13px;line-height:1.75;color:var(--dim)}
+.mat-note{margin-top:var(--u5);display:flex;gap:14px;align-items:flex-start;padding:var(--u4) var(--u5);
+  border:1px solid var(--line);border-radius:var(--u4);background:var(--panel)}
+.mat-note svg{width:22px;height:22px;flex:none;stroke:var(--a0);fill:none;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;margin-top:2px}
+.mat-note h4{margin:0 0 6px;font-size:16px}
+.mat-note p{margin:0;font-size:13.5px;line-height:1.85;color:var(--dim)}
 
 /* frost */
 .frost{display:grid;grid-template-columns:1fr 380px;gap:var(--u6);align-items:center;margin-top:var(--u4)}
@@ -357,46 +395,53 @@ footer .sp{margin-left:auto;display:flex;gap:var(--u3)}
 footer a:hover{color:var(--tx)}
 
 
-/* ---------- material layers on every card ---------- */
-.wcard .gx{position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:2;overflow:hidden}
-/* crystal: chromatic rim, 1.5px, masked ring */
-.wcard .gx{background:conic-gradient(from 210deg,
-    rgba(255,160,195,.55),rgba(205,170,255,.5),rgba(160,205,255,.55),
+/* ---------- material surface — three genuinely different glass ---------- */
+.wcard .gx{position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:2;overflow:hidden;
+  background:conic-gradient(from 210deg,rgba(255,160,195,.55),rgba(205,170,255,.5),rgba(160,205,255,.55),
     rgba(170,245,225,.4),rgba(255,205,170,.35),rgba(255,160,195,.55));
   padding:1.2px;
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
-  mask-composite:exclude;opacity:.55}
-.wcard[data-mat="crystal"] .gx{opacity:1;padding:1.8px;filter:saturate(1.5) brightness(1.2)}
-.wcard[data-mat="crystal"]{box-shadow:
-    0 1px 0 rgba(255,255,255,.45) inset,0 0 0 1px rgba(255,255,255,.22) inset,
-    0 -26px 46px -34px rgba(0,0,0,.45) inset,
-    0 6px 14px -6px rgba(0,0,0,.3),0 22px 44px -14px rgba(0,0,0,.4),
-    0 0 34px -8px rgba(170,150,255,.35)}
-/* aurora: flowing two-tone glow */
-.wcard[data-mat="aurora"] .gx{padding:0;background:
-    radial-gradient(60% 85% at 16% 8%,rgba(197,157,255,.6),transparent 62%),
-    radial-gradient(58% 75% at 85% 92%,rgba(84,224,203,.5),transparent 62%),
-    linear-gradient(112deg,transparent 26%,rgba(255,255,255,.22) 48%,transparent 68%);
-  background-size:auto,auto,240% 100%;mix-blend-mode:screen;
-  -webkit-mask:none;mask:none;
-  animation:auroraFlow 8.5s ease-in-out infinite alternate}
-@keyframes auroraFlow{from{background-position:0 0,100% 100%,120% 0}
-  to{background-position:35% 18%,62% 84%,-60% 0}}
-.wcard[data-mat="mist"]{--blur:40px}
-.wcard[data-mat="mist"] .gx{padding:0;background:linear-gradient(180deg,rgba(255,255,255,.46),rgba(255,255,255,.22));
-  -webkit-mask:none;mask:none}
-.wcard[data-mat="mist"] .gx::after{content:"";position:absolute;inset:0;
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='.5'/></svg>");
-  opacity:.72;mix-blend-mode:overlay}
-.mat-stage{position:relative;height:132px;border-radius:16px;overflow:hidden;margin-bottom:14px;isolation:isolate;
+  mask-composite:exclude;opacity:.5}
+/* 晶体 CRYSTAL — 实心水晶体：宽色散虹环 + 锐利顶部高光 + 冷调通透 */
+.mat[data-m="crystal"] .wcard{--blur:20px}
+.mat[data-m="crystal"] .gx{opacity:1;padding:3px;filter:saturate(2.4) brightness(1.24);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
+.mat[data-m="crystal"] .gx::after{content:"";position:absolute;left:5%;right:5%;top:0;height:54%;
+  background:linear-gradient(180deg,rgba(255,255,255,.62),transparent);
+  border-radius:inherit;pointer-events:none}
+.mat[data-m="crystal"] .wcard{box-shadow:
+  0 1px 0 rgba(255,255,255,.75) inset,0 0 0 1px rgba(255,255,255,.4) inset,
+  0 14px 30px -18px rgba(90,60,180,.5) inset,
+  0 0 32px -4px rgba(180,140,255,.55),0 26px 52px -18px rgba(40,30,80,.5)}
+/* 极光 AURORA — 会流动的光：高饱和双色辉光在玻璃内部游走 */
+.mat[data-m="aurora"] .wcard{--blur:16px}
+.mat[data-m="aurora"] .gx{opacity:1;padding:0;
   background:
-    radial-gradient(60% 70% at 24% 20%,rgba(150,110,255,.5),transparent 64%),
-    radial-gradient(60% 70% at 78% 80%,rgba(70,190,170,.42),transparent 62%),
-    linear-gradient(160deg,#171226,#0b1522 60%,#0d1f1b)}
-.mat-stage .wcard{position:absolute;left:50%;top:50%;margin:-67px 0 0 -170px;--lift:0px}
-.mat[aria-pressed="true"] .mat-stage{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--a0) 60%,transparent)}
-.mat h4 span{font-size:11px;letter-spacing:.14em;color:var(--dim2);font-weight:400;margin-left:6px;text-transform:uppercase}
+    radial-gradient(72% 105% at 10% 2%,rgba(230,130,255,1),transparent 62%),
+    radial-gradient(68% 98% at 92% 98%,rgba(60,255,200,.96),transparent 62%),
+    linear-gradient(115deg,transparent 12%,rgba(255,255,255,.68) 44%,transparent 70%);
+  background-size:auto,auto,260% 100%;mix-blend-mode:screen;
+  -webkit-mask:none;mask:none;
+  animation:auroraFlow 6s ease-in-out infinite alternate}
+@keyframes auroraFlow{from{background-position:0 0,100% 100%,120% 0}
+  to{background-position:32% 20%,62% 82%,-70% 0}}
+.mat[data-m="aurora"] .wcard{box-shadow:
+  0 1px 0 rgba(255,255,255,.55) inset,0 0 0 1px rgba(255,255,255,.3) inset,
+  0 0 38px -6px rgba(120,90,255,.6),0 26px 52px -18px rgba(20,60,80,.5)}
+/* 绒雾 MIST — 磨砂老玻璃：强模糊 + 细密颗粒 + 低对比柔光 */
+.mat[data-m="mist"] .wcard{--blur:48px}
+.mat[data-m="mist"] .gx{opacity:1;padding:0;
+  background:linear-gradient(180deg,rgba(255,255,255,.62),rgba(255,255,255,.3));
+  -webkit-mask:none;mask:none}
+.mat[data-m="mist"] .gx::after{content:"";position:absolute;inset:0;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/><feColorMatrix type='saturate' values='0'/></filter><rect width='120' height='120' filter='url(%23n)' opacity='.5'/></svg>");
+  opacity:.85;mix-blend-mode:overlay}
+.mat[data-m="mist"] .wcard{box-shadow:
+  0 1px 0 rgba(255,255,255,.6) inset,0 0 0 1px rgba(255,255,255,.32) inset,
+  0 14px 30px -18px rgba(80,80,110,.4) inset,
+  0 20px 44px -16px rgba(70,70,100,.4)}
 
 /* ---------- spotlight + scroll progress ---------- */
 .spot{position:fixed;left:0;top:0;width:640px;height:640px;margin:-320px 0 0 -320px;border-radius:50%;
@@ -591,7 +636,8 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
   .hero .wrap,.demo-grid,.matspec,.frost,.typegrid{grid-template-columns:1fr}
   nav.links{display:none}
   .stage{height:340px}
-  .mats{grid-template-columns:1fr}
+  .mats{grid-template-columns:1fr;gap:var(--u3)}
+  .mat-stage{height:250px}
   .menu{margin:0 auto}
   .dl .acts{margin-left:0}
   .log{grid-template-columns:1fr;gap:6px}
@@ -604,7 +650,8 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
   .preview{min-height:420px}
   .preview .wcard{--s:1.02}
   .scene .wcard{--s:.72}
-  .matspec .big .wcard{--s:.62}
+  .mat-stage .wcard{--s:.72;margin-left:-123px}
+  .bignum{font-size:92px}
   .hero{padding:60px 0 80px}
 }
 </style>
@@ -1005,61 +1052,69 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
   <section class="section" id="material">
     <div class="wrap">
       <div class="shead rv">
-        <div><p class="tagline">Material</p><h2>三种玻璃，<br>同一块晶体</h2></div>
+        <div><p class="tagline">Material · 柔光玻璃</p><h2>三种玻璃，<br>会呼吸的材质</h2></div>
         <p>材质不是一张蒙版，是对背后的一次采样。晶体克制、极光流动、绒雾安静——
-          切换只改变光的路由，不改变你熟悉的那张卡片。</p>
+          点一点卡片，材质会跟着光一起换气。</p>
       </div>
       <div class="mats rv" id="mats">
         <button class="mat" data-m="crystal" aria-pressed="true">
-          <div class="mat-stage"><div class="wcard" data-mat="crystal" style="--r:40;--s:.56">
-            <i class="gx"></i>
-            <div class="wc-in"><div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
-              <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div></div>
-          </div></div>
-          <h4>晶体 <span>Crystal</span></h4><p>色散边：R/B 通道走不同距离，边缘透出一圈虹彩，像实心的圆水晶。</p>
-        </button>
-        <button class="mat" data-m="aurora" aria-pressed="false">
-          <div class="mat-stage"><div class="wcard" data-mat="aurora" style="--r:40;--s:.56">
-            <i class="gx"></i>
-            <div class="wc-in"><div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
-              <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div></div>
-          </div></div>
-          <h4>极光 <span>Aurora</span></h4><p>斜向双色辉光在玻璃里缓慢流动，强调色参与折射，整块材质是活的。</p>
-        </button>
-        <button class="mat" data-m="mist" aria-pressed="false">
-          <div class="mat-stage"><div class="wcard" data-mat="mist" style="--r:40;--s:.56">
-            <i class="gx"></i>
-            <div class="wc-in"><div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
-              <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div></div>
-          </div></div>
-          <h4>绒雾 <span>Mist</span></h4><p>更深的模糊、压低的对比与细密颗粒，像磨砂后被岁月抚过的老玻璃。</p>
-        </button>
-      </div>
-      <div class="matspec rv">
-        <div class="big">
-          <i></i><i></i>
-          <div class="matcap" id="matCap">晶体 · 色散边 1.2 px</div>
-          <div class="wl">
-            <div class="wcard" id="matCard" data-theme="dark" style="--r:52;--s:.86">
+          <div class="mat-stage">
+            <div class="wash"></div><div class="ribbon"></div>
+            <div class="bignum">0826</div>
+            <span class="tagx">CRYSTAL · 晶体</span>
+            <div class="wcard" data-mat="crystal" style="--r:40">
               <i class="gx"></i>
-            <div class="wc-in">
-                <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
-                <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
-              </div>
+              <div class="wc-in"><div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
+                <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div></div>
               <div class="wc-dots"><i></i><i></i><i></i></div>
             </div>
           </div>
-        </div>
+          <div class="mat-info">
+            <div class="mh"><b>晶体</b><span>Crystal</span></div>
+            <p>色散边：R/B 通道走不同距离，边缘透出一圈虹彩，像实心的圆水晶。</p>
+          </div>
+        </button>
+        <button class="mat" data-m="aurora" aria-pressed="false">
+          <div class="mat-stage">
+            <div class="wash"></div><div class="ribbon"></div>
+            <div class="bignum">0826</div>
+            <span class="tagx">AURORA · 极光</span>
+            <div class="wcard" data-mat="aurora" style="--r:40">
+              <i class="gx"></i>
+              <div class="wc-in"><div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
+                <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div></div>
+              <div class="wc-dots"><i></i><i></i><i></i></div>
+            </div>
+          </div>
+          <div class="mat-info">
+            <div class="mh"><b>极光</b><span>Aurora</span></div>
+            <p>斜向双色辉光在玻璃里缓慢流动，强调色参与折射，整块材质是活的。</p>
+          </div>
+        </button>
+        <button class="mat" data-m="mist" aria-pressed="false">
+          <div class="mat-stage">
+            <div class="wash"></div><div class="ribbon"></div>
+            <div class="bignum">0826</div>
+            <span class="tagx">MIST · 绒雾</span>
+            <div class="wcard" data-mat="mist" style="--r:40">
+              <i class="gx"></i>
+              <div class="wc-in"><div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
+                <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div></div>
+              <div class="wc-dots"><i></i><i></i><i></i></div>
+            </div>
+          </div>
+          <div class="mat-info">
+            <div class="mh"><b>绒雾</b><span>Mist</span></div>
+            <p>更深的模糊、压低的对比与细密颗粒，像磨砂后被岁月抚过的老玻璃。</p>
+          </div>
+        </button>
+      </div>
+      <div class="mat-note rv">
+        <svg viewBox="0 0 24 24"><use href="#i-layers"/></svg>
         <div>
-          <h3 style="margin:0 0 10px;font-size:22px;letter-spacing:-.01em;font-weight:700">折射是算出来的，不是贴上去的</h3>
-          <p style="margin:0;color:var(--dim);font-size:14.5px;line-height:1.85">
-            卡片边缘按圆角盒 SDF 采样桌面，R/B 通道走不同距离产生克制色散；
-            折射带宽度恒为 <b style="color:var(--tx)">0.45 × 圆角</b>，所以放大圆角时，边缘的“厚度”也跟着长。</p>
-          <ul>
-            <li><b>只玻璃桌面</b>未置顶时只采样桌面（壁纸 + 图标）；勾选「总在最前」后才把后面的窗口一起磨砂。</li>
-            <li><b>半分辨率模糊</b>两次采样重建低频，空闲时 CPU ≈ 0%，拖动也不掉帧。</li>
-            <li><b>截屏可见</b>想拍就拍：抓屏瞬间自动排除自身窗口，不留拖影和鬼影。</li>
-          </ul>
+          <h4>折射是算出来的，不是贴上去的</h4>
+          <p>卡片边缘按圆角盒 SDF 采样桌面，R/B 通道走不同距离产生克制色散；折射带宽度恒为 0.45 × 圆角，
+            所以放大圆角时，边缘的“厚度”也跟着长——三种材质只是换了光的路由，卡片还是你熟悉的那张。</p>
         </div>
       </div>
     </div>
@@ -1304,9 +1359,10 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
   const syncIcons=()=>{
     const src = st.icon==='classic' ? 'assets/icon-original.png'
                                     : `assets/icon-${ICONS[st.accent]}.png`;
-    ['#demoCard','#heroCard','#matCard','#frostCard'].forEach(sel=>{
+    ['#demoCard','#heroCard','#frostCard'].forEach(sel=>{
       const img=$(sel+' .wc-icon img'); if(img) img.src=src;
     });
+    $$('#mats .wc-icon img').forEach(img=>img.src=src);
   };
   hero.addEventListener('pointermove',e=>{
     const r=hero.getBoundingClientRect();
@@ -1322,18 +1378,13 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
   });
   syncIcons();
 
-  const matCard=$('#matCard');
-  const MAT={crystal:{blur:22,sat:1.35},aurora:{blur:26,sat:1.6},mist:{blur:38,sat:1.02}};
+  /* clicking a material card brings it forward; each card keeps its own live look */
   $$('#mats .mat').forEach(b=>b.addEventListener('click',()=>{
-    $$('#mats .mat').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
-    const m=MAT[b.dataset.m];
-    matCard.dataset.mat=b.dataset.m;
-    const CAP={crystal:'晶体 · 色散边 1.2 px',aurora:'极光 · 双色辉光流动',mist:'绒雾 · 乳白磨砂 + 颗粒'};
-    const cap=$('#matCap'); if(cap) cap.textContent=CAP[b.dataset.m];
-    matCard.style.setProperty('--blur',m.blur+'px');
-    matCard.style.filter=`saturate(${m.sat})`;
+    $$('#mats .mat').forEach(x=>{
+      x.setAttribute('aria-pressed',String(x===b));
+      x.style.zIndex = x===b ? '2' : '';
+    });
   }));
-  matCard.dataset.mat='crystal';
 
   /* cursor spotlight + scroll progress */
   const spot=$('#spot'), prog=$('#prog2');
