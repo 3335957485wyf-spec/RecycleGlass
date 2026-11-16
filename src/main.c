@@ -567,14 +567,17 @@ static BOOL window_overlaps_card(void)
         return cached = FALSE;
 
     {
-        HWND w = GetTopWindow(NULL);
-        while (w)
+        HWND w;
+        /* Walk the full z-order, starting AT the topmost window.  The old
+         * loop advanced with GetWindow() before inspecting w, which silently
+         * skipped the topmost window - exactly the freshly-opened window that
+         * covers the card - so the "bake opaque" condition never fired there. */
+        for (w = GetTopWindow(NULL); w; w = GetWindow(w, GW_HWNDNEXT))
         {
             RECT r;
             wchar_t cls[64];
 
-            w = GetWindow(w, GW_HWNDNEXT);
-            if (!w || w == g_hwnd)
+            if (w == g_hwnd)
                 continue;
             if (!IsWindowVisible(w) || IsIconic(w))
                 continue;
