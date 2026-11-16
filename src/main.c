@@ -468,48 +468,28 @@ static void invalidate_backdrop(void)
     g_backdrop_live = FALSE;
 }
 
-/* Opts the widget out of screen capture so its own pixels never end up in the
- * backdrop it is about to blur. */
+/* Display affinity for the widget, plus the choice of backdrop source.
+ *
+ * The card's glass samples the DESKTOP WALLPAPER only.  Sampling the live
+ * screen dragged whatever window happened to sit behind the widget into the
+ * material - text, lists, white document panes bleeding through the glass -
+ * which reads as "the widget is glassing my other apps".  A desktop widget
+ * belongs to the desktop, so the wallpaper is the honest source.  It also
+ * means no BitBlt of the screen, so nothing needs to be excluded from our own
+ * grabs.  (The right-click menu keeps sampling the screen: it opens over
+ * whatever the user is looking at, and a panel showing wallpaper where a
+ * window is would look like a hole in that window.) */
 static void init_capture(void)
 {
     g_live_backdrop = FALSE;
     glass_set_capture_visible(g_cfg.capture_visible);
 
-    if (wcscmp(g_cfg.blur_mode, L"wallpaper") == 0)
-    {
-        /* Blurring the wallpaper needs no capture at all, and dropping the
-         * capture exclusion makes the widget show up in screenshots again. */
-        SetWindowDisplayAffinity(g_hwnd, 0 /* WDA_NONE */);
-        return;
-    }
-    /* Capture-visible mode keeps the widget out of the exclusion list so
-     * screenshots include it; glass.c punches the widget rect out of the
-     * backdrop captures instead. */
-    if (g_cfg.capture_visible)
-    {
-        /* The card is in the grab now, but glass.c reconstructs those pixels
-         * with a low-frequency copy of the same frame.  So the card can keep
-         * using the REAL desktop as its backdrop, exactly like the menu does -
-         * the old "fall back to the static wallpaper" left the two windows
-         * showing two different worlds. */
-        SetWindowDisplayAffinity(g_hwnd, 0 /* WDA_NONE */);
-        g_live_backdrop = glass_live_available();
-        diag(L"capture visible=1 (no wda, live=%d)", (int)g_live_backdrop);
-        return;
-    }
-
-    if (!glass_live_available())
-    {
-        return;
-    }
-
-    /* WDA_EXCLUDEFROMCAPTURE: the window is invisible to BitBlt of the desktop. */
-    if (!SetWindowDisplayAffinity(g_hwnd, 0x00000011))
-    {
-        return;
-    }
-
-    g_live_backdrop = TRUE;
+    /* "Visible in screenshots" = no exclusion at all.  When it is off the
+     * widget opts out of every app's capture, as before. */
+    SetWindowDisplayAffinity(g_hwnd, g_cfg.capture_visible
+                                        ? 0          /* WDA_NONE */
+                                        : 0x00000011 /* WDA_EXCLUDEFROMCAPTURE */);
+    diag(L"backdrop=wallpaper capture_visible=%d", (int)g_cfg.capture_visible);
 }
 
 static void ensure_backdrop(void)

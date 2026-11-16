@@ -820,10 +820,58 @@ static void draw_switch(GpGraphics *g, float x, float y, float w, float h,
 }
 
 
+/* The knob's radius, shared by the painter and the drag maths. */
+static float slider_knob_r(void)
+{
+    return (float)sc(7, 5);
+}
+
+/* Track geometry: exactly the same content box the segmented pickers use
+ * (panel inset PAD, then one U1 of row padding on each side), so every
+ * control on the page shares one left edge and one right edge.
+ *
+ * The knob's CENTRE travels one radius inside the track, which means at
+ * either end the knob's EDGE - not its centre - lands on that shared edge.
+ * The old code ended the track at U3 (a smaller inset than U1) and put the
+ * knob's centre there, so the knob overhung the track and stuck out ~4 px
+ * past the segmented control above it. */
 static void slider_bounds(float *x0, float *x1)
 {
-    *x0 = (float)(MARGIN + PAD + U1 + ICON_SZ + U1);
-    *x1 = (float)(MARGIN + PANEL_W - PAD - U3);
+    *x0 = (float)(MARGIN + PAD + U1);
+    *x1 = (float)(MARGIN + PANEL_W - PAD - U1);
+}
+
+/* The knob's ring is stroked ON its outline, so half of the stroke lands
+ * outside the circle.  Pulling the travel in by that half keeps the ring's
+ * outer edge - the thing the eye sees - exactly on the track's end, which is
+ * what makes the slider read as aligned with the pickers above it. */
+static float slider_ring_pad(void)
+{
+    return scf(1.0f, 0.8f);
+}
+
+/* Value -> knob centre.  Clamped so the knob never leaves the track even when
+ * the drag animation inflates it. */
+static float slider_knob_x(float x0, float x1, float t)
+{
+    float r = slider_knob_r();
+    float pad = r + slider_ring_pad();
+    float span = x1 - x0 - 2.0f * pad;
+
+    if (span < 0.0f)
+        span = 0.0f;
+    return x0 + pad + span * rg_clampf(t, 0.0f, 1.0f);
+}
+
+/* Pointer -> 0..1, the exact inverse of slider_knob_x(). */
+static float slider_t_at(float x0, float x1, float px)
+{
+    float pad = slider_knob_r() + slider_ring_pad();
+    float span = x1 - x0 - 2.0f * pad;
+
+    if (span <= 0.0f)
+        return 0.0f;
+    return rg_clampf((px - x0 - pad) / span, 0.0f, 1.0f);
 }
 
 static void slider_readout(const Row *r, wchar_t *out, size_t cap)
@@ -844,13 +892,13 @@ static void draw_slider(GpGraphics *g, const Row *r, const RECT *rect,
 
     th_h = (float)sc(5, 3);
     cy = (float)rect->bottom - (float)sc(18, 12);
-    kr = (float)sc(7, 5);
+    kr = slider_knob_r();
     if (g_drag_slider >= 0 && &g_rows[g_drag_slider] == r)
         kr *= 1.18f;
 
     t = (r->vmax > r->vmin) ? (r->v - r->vmin) / (r->vmax - r->vmin) : 0.0f;
     t = rg_clampf(t, 0.0f, 1.0f);
-    kx = x0 + (x1 - x0) * t;
+    kx = slider_knob_x(x0, x1, t);
 
     fill_round_n(g, x0, cy - th_h * 0.5f, x1 - x0, th_h, th_h * 0.5f,
                  fade(th->track, alpha), 2.0f);
@@ -1682,8 +1730,7 @@ static void slider_from_x(int idx, int x)
         return;
 
     slider_bounds(&x0, &x1);
-    t = (x1 > x0) ? ((float)x - x0) / (x1 - x0) : 0.0f;
-    t = rg_clampf(t, 0.0f, 1.0f);
+    t = slider_t_at(x0, x1, (float)x);
 
     v = r->vmin + (r->vmax - r->vmin) * t;
     /* Stepless: no floor() quantisation.  The readout still rounds for

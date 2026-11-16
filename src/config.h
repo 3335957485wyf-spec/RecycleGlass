@@ -19,7 +19,8 @@ typedef struct {
     float material;
     float blur_radius;
     wchar_t size[16];      /* small | normal | large */
-    wchar_t blur_mode[16]; /* screen | wallpaper */
+    wchar_t blur_mode[16]; /* MENU backdrop only: screen | wallpaper.
+                          * The card always samples the desktop wallpaper. */
     wchar_t theme[16];     /* system | light | dark */
     wchar_t glass[16];     /* crystal | aurora | mist */
     wchar_t accent[16];    /* blue | violet | mint | peach | amber | lime */
