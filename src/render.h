@@ -115,6 +115,10 @@ int   render_shadow_pad(void);
  * Call it when anything that feeds those layers changes. */
 void  render_invalidate(void);
 
+/* Changes whenever a render cache is dropped or the layout scale changes.
+ * Frame-skip logic must treat a new epoch as "repaint required". */
+unsigned render_epoch(void);
+
 /* Pill and title-menu hit rectangles in client coordinates, refreshed by
  * render_card(). */
 extern RECT g_hit_open;

@@ -14,8 +14,9 @@ RES     = build/app.res
 
 CFLAGS  = -O2 -std=gnu11 -Wall -Wextra -Wno-unused-parameter \
           -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0A00 \
-          -finput-charset=UTF-8 -municode
-LDFLAGS = -municode -mwindows -static-libgcc
+          -finput-charset=UTF-8 -municode \
+          -ffunction-sections -fdata-sections
+LDFLAGS = -municode -mwindows -static-libgcc -Wl,--gc-sections -s
 LIBS    = -lgdiplus -lshell32 -lole32 -loleaut32 -luuid -lshlwapi \
           -lgdi32 -luser32 -ladvapi32 -lcomdlg32
 
@@ -27,7 +28,7 @@ build/RecycleGlass.exe: $(OBJ) $(RES)
 build/%.o: src/%.c | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/app.res: res/app.rc res/app-icon.ico res/app-icon-1920.png | build
+build/app.res: res/app.rc res/app-icon.ico res/app-icon-512.png | build
 	$(WINDRES) -I src -I res res/app.rc -O coff -o $@
 
 # Offline preview: renders one card frame to a PNG, no desktop needed.

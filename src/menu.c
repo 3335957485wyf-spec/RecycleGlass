@@ -979,6 +979,9 @@ static void draw_segment(GpGraphics *g, const Row *r, int idx, const RECT *rect,
     float tr_y = (float)rect->bottom - (float)U2 - tr_h;
     float seg_w = tr_w / (float)r->nseg;
     float thumb = g_seg_anim[idx].v;
+    /* g_seg_hover is a column index shared by every segment row; without the
+     * row check, hovering one picker lit the same column in all of them. */
+    int hov = (idx == g_hover) ? g_seg_hover : -1;
     int i;
 
     icon_draw(g, r->icon, (float)(rect->left + U1) + ICON_SZ * 0.5f,
@@ -998,11 +1001,11 @@ static void draw_segment(GpGraphics *g, const Row *r, int idx, const RECT *rect,
          * row, preview that colour's name in place; the selected ring still
          * makes the applied value unambiguous. */
         {
-            int label_i = (g_seg_hover >= 0 && g_seg_hover < r->nseg)
-                        ? g_seg_hover : r->seg_cur;
+            int label_i = (hov >= 0 && hov < r->nseg)
+                        ? hov : r->seg_cur;
             draw_text(g, r->seg[label_i], g_font_small, (float)rect->left,
                       line_y, (float)(rect->right - rect->left) - (float)U1,
-                      line_h, fade(g_seg_hover >= 0 ? th->text : th->dim, alpha),
+                      line_h, fade(th->dim, alpha),
                       g_fmt_r);
         }
 
@@ -1010,7 +1013,7 @@ static void draw_segment(GpGraphics *g, const Row *r, int idx, const RECT *rect,
         {
             ARGB from = 0, to = 0, txt = 0;
             float cx = tr_x + seg_w * ((float)i + 0.5f);
-            int hot = (i == g_seg_hover);
+            int hot = (i == hov);
             float active = 1.0f - rg_clampf(fabsf(thumb - (float)i), 0.0f, 1.0f);
             float scale = 0.80f + 0.20f * fmaxf(active, hot ? 0.56f : 0.0f);
             float sd = d * scale;
@@ -1032,14 +1035,18 @@ static void draw_segment(GpGraphics *g, const Row *r, int idx, const RECT *rect,
             }
             else if (hot)
             {
+                /* Neutral hairline, not the accent ring: a coloured ring here
+                 * read as "selected" while the pointer was merely exploring. */
                 stroke_round_grad_n(g, sx - scf(3.0f, 2.0f),
                                     sy - scf(3.0f, 2.0f),
                                     sd + scf(6.0f, 4.0f),
                                     sd + scf(6.0f, 4.0f),
                                     (sd + scf(6.0f, 4.0f)) * 0.5f,
                                     scf(1.2f, 0.9f),
-                                    fade(from, alpha * 0.58f),
-                                    fade(to, alpha * 0.58f), 2.0f);
+                                    fade(menu_dark() ? rgba(70, 255, 255, 255)
+                                                     : rgba(70, 0, 0, 0), alpha),
+                                    fade(menu_dark() ? rgba(70, 255, 255, 255)
+                                                     : rgba(70, 0, 0, 0), alpha), 2.0f);
             }
 
             fill_ellipse_grad(g, sx, sy, sd, sd,
@@ -1065,6 +1072,18 @@ static void draw_segment(GpGraphics *g, const Row *r, int idx, const RECT *rect,
         fill_round(g, tr_x, tr_y, tr_w, tr_h, (float)ROW_R,
                    fade(menu_dark() ? rgba(38, 255, 255, 255)
                                     : rgba(26, 0, 0, 0), alpha));
+
+        /* Hover = a faint neutral wash on the track cell.  Brightening the
+         * label instead made hover read as half-selected. */
+        if (hov >= 0 && hov < r->nseg)
+        {
+            float hx = tr_x + seg_w * (float)hov + tins;
+            fill_round_n(g, hx, tr_y + tins, seg_w - 2.0f * tins,
+                         tr_h - 2.0f * tins, trr,
+                         fade(menu_dark() ? rgba(22, 255, 255, 255)
+                                          : rgba(16, 0, 0, 0), alpha),
+                         SQUIRCLE_N);
+        }
 
         /* Selected segment = a lifted, frosted NEUTRAL material.  A fully
          * saturated accent gradient here read as a plastic blue button glued
@@ -1109,11 +1128,9 @@ static void draw_segment(GpGraphics *g, const Row *r, int idx, const RECT *rect,
         {
             float cx = tr_x + seg_w * (float)i;
             int sel = (i == r->seg_cur);
-            /* Label brightens as the thumb arrives under it; a hovered label
-             * brightens part-way so the pointer always has a visible target. */
+            /* Label brightens only as the thumb arrives under it; hover is
+             * carried by the track wash, never by the text colour. */
             float k = 1.0f - rg_clampf(fabsf(thumb - (float)i), 0.0f, 1.0f);
-            if (i == g_seg_hover)
-                k = fmaxf(k, 0.60f);
             ARGB col = menu_dark()
                      ? rgba((int)(176 + 79 * k), 246, 247, 250)
                      : rgba((int)(158 + 97 * k), 26, 27, 31);

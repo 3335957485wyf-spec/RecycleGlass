@@ -36,7 +36,7 @@
 #include <math.h>
 
 #define RG_APP_NAME  L"RecycleGlass"
-#define RG_VERSION   L"4.11.7"
+#define RG_VERSION   L"4.12.0"
 /* Shared squircle exponent: flatter shoulders than a rounded rectangle, with a
  * tighter, more deliberate corner than a circle. */
 #define RG_SQUIRCLE_N 2.0f
@@ -82,6 +82,7 @@ static inline float rg_concentric(float outer_radius, float inset)
 #define RG_WM_PULSE  (WM_APP + 4)
 #define RG_WM_REFRESH (WM_APP + 7)  /* a new backdrop capture landed */
 #define RG_WM_DUMP   (WM_APP + 9)   /* write the current frame to %TEMP% */
+#define RG_WM_BINWATCH (WM_APP + 10) /* shell: recycle bin contents changed */
 
 /* ---- timers ------------------------------------------------------------- */
 #define RG_TIMER_POLL   1

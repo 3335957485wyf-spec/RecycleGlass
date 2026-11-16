@@ -10,6 +10,7 @@
 #include "resource.h"
 
 #define POLL_MS        5000
+#define QUERY_FALLBACK_MS 15000
 #define HOVER_DUR      0.16f
 #define FX_DUR         0.42f
 #define DRAG_THRESHOLD 4
@@ -58,6 +59,7 @@ static float     g_press_target;
 static float     g_hover_span = HOVER_DUR;
 static ULONGLONG g_hover_t0;
 static BOOL      g_hover_ticking;
+static ULONGLONG g_hover_last_tick;
 
 static float     g_fx_t = 1.0f;
 static BOOL      g_fx_active;
@@ -90,6 +92,7 @@ static UINT      g_taskbar_msg;
 
 static CRITICAL_SECTION g_lock;
 static long long g_q_count, g_q_size;
+static volatile LONG g_query_urgent;
 static BOOL      g_op_ok;
 static wchar_t   g_op_msg[256];
 
@@ -911,7 +914,40 @@ static void refresh(void)
     st.press = g_press * ((g_hover_btn == 1 || g_hover_btn == 2 ||
                            g_hover_btn == 3) ? 1.0f : 0.55f);
 
-    render_card(&g_surf, &st);
+    /* Idle fast path: identical state paints identical pixels.  The glass
+     * timer still runs ensure_backdrop() above, so a fresh live capture is
+     * picked up; but when nothing changed, skip the composite and the ULW
+     * upload entirely instead of pushing the same frame every 700 ms. */
+    {
+        static RgRenderState last_st;
+        static wchar_t last_sub[256];
+        static POINT last_pos;
+        static unsigned last_epoch;
+        static BOOL have_last;
+        RgRenderState cmp = st;
+        unsigned epoch = render_epoch();
+        POINT pos = { 0, 0 };
+        RECT wr;
+
+        cmp.backdrop = st.backdrop ? (const RgBitmap *)(void *)1 : NULL;
+        if (g_frame_moves)
+            pos = g_frame_pos;
+        else if (GetWindowRect(g_hwnd, &wr))
+        {
+            pos.x = wr.left;
+            pos.y = wr.top;
+        }
+        else
+            have_last = FALSE;
+
+        if (have_last && !g_frame_moves &&
+            epoch == last_epoch &&
+            memcmp(&cmp, &last_st, sizeof(cmp)) == 0 &&
+            wcscmp(sub, last_sub) == 0 &&
+            pos.x == last_pos.x && pos.y == last_pos.y)
+            return;
+
+        render_card(&g_surf, &st);
 
     if (prof)
         t2 = now_us();
@@ -943,6 +979,15 @@ static void refresh(void)
             logged = TRUE;
             diag(L"UpdateLayeredWindow failed err=%lu", GetLastError());
         }
+        have_last = FALSE;
+    }
+    else
+    {
+        last_st = cmp;
+        wcscpy_s(last_sub, RG_COUNT(last_sub), sub);
+        last_pos = pos;
+        last_epoch = epoch;
+        have_last = TRUE;
     }
 
     if (prof)
@@ -951,6 +996,7 @@ static void refresh(void)
         g_pf.rs_us += tA - t0;
         g_pf.sub_us += t1 - tB;
         prof_frame(t1 - t0, t2 - t1, t3 - t2, t3 - t0);
+    }
     }
 }
 
@@ -1007,6 +1053,7 @@ static void kick_hover(void)
     if (!g_hover_ticking)
     {
         g_hover_ticking = TRUE;
+        g_hover_last_tick = 0;
         SetTimer(g_hwnd, RG_TIMER_HOVER, 16, NULL);
     }
 }
@@ -1043,6 +1090,16 @@ static void tick_hover(void)
     float t = (float)(now_ms() - g_hover_t0) / (g_hover_span * 1000.0f);
     BOOL settled = TRUE;
     int i;
+    /* Time-based easing: WM_TIMER can stretch under load, and a per-tick
+     * factor would make the pills crawl on a busy frame.  The time constants
+     * reproduce the old 0.34 / 0.42 per-16 ms feel at any tick rate. */
+    ULONGLONG now = now_ms();
+    float dt = g_hover_last_tick ? (float)(now - g_hover_last_tick) : 16.0f;
+    float k_btn, k_press;
+    g_hover_last_tick = now;
+    dt = rg_clampf(dt, 1.0f, 100.0f);
+    k_btn = 1.0f - expf(-dt / 38.6f);
+    k_press = 1.0f - expf(-dt / 29.4f);
 
     if (t >= 1.0f)
     {
@@ -1066,7 +1123,7 @@ static void tick_hover(void)
         }
         else
         {
-            g_btn_t[i] += d * 0.34f;
+            g_btn_t[i] += d * k_btn;
             settled = FALSE;
         }
     }
@@ -1077,7 +1134,7 @@ static void tick_hover(void)
             g_press = g_press_target;
         else
         {
-            g_press += d * 0.42f;
+            g_press += d * k_press;
             settled = FALSE;
         }
     }
@@ -1152,7 +1209,7 @@ static HICON original_icon(void)
     int cy = GetSystemMetrics(SM_CYSMICON);
 
     if (!g_icon_orig)
-        g_icon_orig = (HICON)LoadImageW(g_inst, MAKEINTRESOURCEW(IDI_TRAY),
+        g_icon_orig = (HICON)LoadImageW(g_inst, MAKEINTRESOURCEW(IDR_APPICON),
                                         IMAGE_ICON, cx, cy, LR_DEFAULTCOLOR);
     return g_icon_orig;
 }
@@ -1410,10 +1467,60 @@ static void request_query(void)
         SetEvent(g_wake);
 }
 
+/* ---------------------------------------------------------- bin watcher */
+
+/* SHQueryRecycleBin walks the whole bin (~50 ms for a few hundred items), so
+ * polling it every few seconds is the widget's main idle cost.  The shell
+ * notifies us when the bin changes instead; a slow poll stays as a fallback
+ * for the cases where the notification registration is lost. */
+static ULONG        g_bin_watch;
+static LPITEMIDLIST g_bin_pidl;
+static ULONGLONG    g_last_watch_req;
+
+static void watch_bin(void)
+{
+    SHChangeNotifyEntry e;
+
+    if (g_bin_watch)
+    {
+        SHChangeNotifyDeregister(g_bin_watch);
+        g_bin_watch = 0;
+    }
+    if (!g_bin_pidl &&
+        SHGetFolderLocation(NULL, CSIDL_BITBUCKET, NULL, 0, &g_bin_pidl) != S_OK)
+        return;
+
+    e.pidl = g_bin_pidl;
+    e.fRecursive = FALSE;
+    g_bin_watch = SHChangeNotifyRegister(g_hwnd,
+        SHCNRF_InterruptLevel | SHCNRF_ShellLevel | SHCNRF_NewDelivery,
+        SHCNE_CREATE | SHCNE_DELETE | SHCNE_RENAMEITEM | SHCNE_RENAMEFOLDER |
+        SHCNE_UPDATEDIR | SHCNE_UPDATEITEM,
+        RG_WM_BINWATCH, 1, &e);
+    diag(L"bin watch reg=%lu", g_bin_watch);
+}
+
+static void unwatch_bin(void)
+{
+    if (g_bin_watch)
+    {
+        SHChangeNotifyDeregister(g_bin_watch);
+        g_bin_watch = 0;
+    }
+    if (g_bin_pidl)
+    {
+        ILFree(g_bin_pidl);
+        g_bin_pidl = NULL;
+    }
+}
+
 /* --------------------------------------------------------------- poller */
 
 static DWORD WINAPI poll_thread(LPVOID param)
 {
+    long long prev_c = -1, prev_s = -1;
+    DWORD wait = POLL_MS;
+    int calm = 0;
     (void)param;
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
@@ -1421,24 +1528,37 @@ static DWORD WINAPI poll_thread(LPVOID param)
     {
         HANDLE waits[2];
         DWORD  hit;
+        BOOL   urgent;
+        long long c = 0, s = 0;
 
         waits[0] = g_wake;
         waits[1] = g_stop_evt;
-        hit = WaitForMultipleObjects(2, waits, FALSE, POLL_MS);
+        hit = WaitForMultipleObjects(2, waits, FALSE, wait);
 
         if (hit == WAIT_OBJECT_0 + 1)
             break;
 
-        {
-            long long c = 0, s = 0;
-            shell_query(&c, &s);
-            EnterCriticalSection(&g_lock);
-            g_q_count = c;
-            g_q_size = s;
-            LeaveCriticalSection(&g_lock);
-            if (g_hwnd)
-                PostMessage(g_hwnd, RG_WM_BIN, 0, 0);
-        }
+        urgent = InterlockedExchange(&g_query_urgent, 0) != 0;
+        shell_query(&c, &s);
+        EnterCriticalSection(&g_lock);
+        g_q_count = c;
+        g_q_size = s;
+        LeaveCriticalSection(&g_lock);
+        if (g_hwnd)
+            PostMessage(g_hwnd, RG_WM_BIN, 0, 0);
+
+        /* A query costs ~50 ms on a well-filled bin, so back off while the
+         * contents keep coming back identical; any change or explicit request
+         * snaps straight back to the fast cadence. */
+        if (urgent || c != prev_c || s != prev_s)
+            calm = 0;
+        else if (calm < 2)
+            calm++;
+        prev_c = c;
+        prev_s = s;
+        wait = POLL_MS << calm;
+        if (wait > QUERY_FALLBACK_MS)
+            wait = QUERY_FALLBACK_MS;
     }
 
     CoUninitialize();
@@ -1993,6 +2113,7 @@ static void on_op_done(void)
     if (ok)
         start_fx();
 
+    InterlockedExchange(&g_query_urgent, 1);
     request_query();
     refresh();
     save_cfg();
@@ -2257,7 +2378,14 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                 refresh();
             }
             last_dark = d;
-            request_query();
+            /* The poll thread backs off on its own while the bin is quiet.
+             * Without a live shell watcher there is no change signal, so keep
+             * the old 5 s cadence alive here. */
+            if (!g_bin_watch)
+            {
+                InterlockedExchange(&g_query_urgent, 1);
+                request_query();
+            }
             /* Debounced config flush: slider drags mark the config dirty many
              * times per second, so persist at most once per poll tick. */
             if (g_cfg_dirty)
@@ -2356,6 +2484,26 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         on_bin_result();
         return 0;
 
+    case RG_WM_BINWATCH:
+    {
+        /* NewDelivery: wParam is a pair of PIDLs we own, lParam the event. */
+        LPITEMIDLIST *pair = (LPITEMIDLIST *)wp;
+        if (pair)
+        {
+            ILFree(pair[0]);
+            ILFree(pair[1]);
+        }
+        /* Emptying a full bin fires a burst of notifications; one query per
+         * 250 ms is plenty, the busy timer keeps the card alive meanwhile. */
+        if (now_ms() - g_last_watch_req >= 250)
+        {
+            g_last_watch_req = now_ms();
+            InterlockedExchange(&g_query_urgent, 1);
+            request_query();
+        }
+        return 0;
+    }
+
     case RG_WM_OP:
         on_op_done();
         return 0;
@@ -2406,6 +2554,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         KillTimer(hwnd, RG_TIMER_TOAST);
         KillTimer(hwnd, RG_TIMER_BUSY);
         KillTimer(hwnd, RG_TIMER_GLASS);
+        unwatch_bin();
         droptarget_revoke();
         remove_tray();
         PostQuitMessage(0);
@@ -2414,8 +2563,11 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     default:
         if (g_taskbar_msg && msg == g_taskbar_msg)
         {
-            /* Explorer restarted: put the tray icon back. */
+            /* Explorer restarted: put the tray icon back and re-arm the
+             * bin watcher, whose registration died with the old shell. */
             init_tray();
+            watch_bin();
+            request_query();
             return 0;
         }
         break;
@@ -2562,6 +2714,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
     apply_zorder();
 
     init_tray();
+    watch_bin();
 
     g_wake = CreateEventW(NULL, FALSE, FALSE, NULL);
     g_stop_evt = CreateEventW(NULL, TRUE, FALSE, NULL);

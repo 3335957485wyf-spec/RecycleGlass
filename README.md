@@ -9,9 +9,9 @@
 [官网与下载](https://3335957485wyf-spec.github.io/RecycleGlass/) · [更新日志](CHANGELOG.md)
 
 ![Platform](https://img.shields.io/badge/Windows-10%202004%2B%20%7C%2011-0078D6)
-![Version](https://img.shields.io/badge/version-4.11.0-6E8BFF)
+![Version](https://img.shields.io/badge/version-4.12.0-6E8BFF)
 ![Language](https://img.shields.io/badge/language-C-555555)
-![Size](https://img.shields.io/badge/exe-0.98%20MB%20·%20MiSans%20included-8A8F98)
+![Size](https://img.shields.io/badge/exe-0.45%20MB%20·%20MiSans%20included-8A8F98)
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 ![Website](https://img.shields.io/badge/website-3335957485wyf--spec.github.io%2FRecycleGlass-9AA6FF)
 ![Build](https://github.com/3335957485wyf-spec/RecycleGlass/actions/workflows/build.yml/badge.svg)
@@ -69,7 +69,7 @@
 
 ## 下载
 
-到 Releases 下载 `RecycleGlass.exe`（0.83 MB），双击即可运行，绿色免安装。
+到 Releases 下载 `RecycleGlass.exe`（0.45 MB），双击即可运行，绿色免安装。
 
 **系统要求**：Windows 10 2004+ / Windows 11。
 （用到了 `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` 让卡片把自己排除在截图之外，

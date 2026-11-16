@@ -255,6 +255,15 @@ static int     g_body_w, g_body_h;
 static BYTE *g_static = NULL;
 static int   g_static_w = 0, g_static_h = 0;
 
+/* Bumped whenever a cache is dropped or the layout scale changes, so callers
+ * that skip identical frames know a repaint is required anyway. */
+static unsigned g_render_epoch;
+
+unsigned render_epoch(void)
+{
+    return g_render_epoch;
+}
+
 typedef struct {
     int w, h, dark, drag, op, mat;
     int bx, by, bw, bh, blur10;
@@ -284,6 +293,7 @@ void render_set_scale(float s)
 {
     s = rg_clampf(s, 0.6f, 2.5f);
     g_scale = s;
+    g_render_epoch++;
     glass_set_scale(s);
 
     PAD        = scale_k(BASE.pad, 16);
@@ -1312,6 +1322,7 @@ void render_drop_caches(void)
     g_shadow_w = g_shadow_h = g_shadow_r = 0;
     g_shadow_a = -1;
     g_skey_valid = FALSE;
+    g_render_epoch++;
 
     build_fonts();
 }
@@ -1573,6 +1584,7 @@ static void compute_layout(const RgRenderState *st, Layout *L)
 void render_invalidate(void)
 {
     g_skey_valid = FALSE;
+    g_render_epoch++;
 }
 
 /* ------------------------------------------------------------ glass panel */
