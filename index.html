@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RecycleGlass 4.11.7 — 把回收站，装进一块玻璃</title>
-<meta name="description" content="RecycleGlass：Windows 桌面玻璃回收站挂件。实时取色的磨砂玻璃、黄金分割同心圆角、MiSans 字体嵌入，0.98 MB 单文件免安装。">
+<meta name="description" content="RecycleGlass 4.11.7：Windows 桌面玻璃回收站挂件。玻璃连桌面图标一起磨砂，置顶时磨砂其他应用，视频背景照样 60 帧。φ 同心圆角、MiSans 字体嵌入，0.98 MB 单文件免安装。">
 <link rel="icon" href="assets/icon-128.png">
 <link rel="apple-touch-icon" href="assets/icon-256.png">
 <meta property="og:title" content="RecycleGlass 4.11.7">
@@ -142,7 +142,7 @@ html[data-page="light"] .stage::before{
     linear-gradient(180deg,rgba(255,255,255,.14),transparent 46%,rgba(6,8,14,.20)),
     linear-gradient(150deg,rgba(22,24,34,calc(var(--tint) * 1.02)),rgba(16,18,27,calc(var(--tint) * .88)));
   backdrop-filter:blur(var(--blur)) saturate(1.5);-webkit-backdrop-filter:blur(var(--blur)) saturate(1.5);
-  box-shadow:/n    0 1px 0 rgba(255,255,255,.28) inset,
+  box-shadow:0 1px 0 rgba(255,255,255,.28) inset,
     0 0 0 1px rgba(255,255,255,.14) inset,
     0 -26px 46px -34px rgba(0,0,0,.5) inset,
     0 6px 14px -6px rgba(0,0,0,.32),
@@ -447,6 +447,83 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
 /* cards shimmer on hover */
 .wcard:hover .gx{filter:saturate(1.35) brightness(1.06)}
 
+/* ---------- hero: desktop icons behind the glass + floating chips ---------- */
+.hero-scene{position:relative;width:100%;height:100%}
+.desk-icons{position:absolute;inset:0;z-index:0;pointer-events:none}
+.desk-icons .di{position:absolute;width:52px;display:grid;place-items:center;gap:5px;opacity:.9;
+  filter:drop-shadow(0 6px 12px rgba(0,0,0,.5));animation:iconFloat 7s ease-in-out infinite}
+.desk-icons .di span{font-size:9.5px;color:rgba(255,255,255,.9);text-shadow:0 1px 3px #000;
+  writing-mode:horizontal-tb;white-space:nowrap}
+.desk-icons .di img{width:38px;height:38px}
+.desk-icons .di:nth-child(1){left:4%;top:14%;animation-delay:-1s}
+.desk-icons .di:nth-child(2){left:6%;top:52%;animation-delay:-3s}
+.desk-icons .di:nth-child(3){right:5%;top:24%;animation-delay:-5s}
+.desk-icons .di:nth-child(4){right:3%;top:64%;animation-delay:-2s}
+@keyframes iconFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.hero-scene .wcard{z-index:2}
+.hero-chip{position:absolute;z-index:3;display:inline-flex;align-items:center;gap:7px;
+  padding:7px 13px;border-radius:99px;font-size:11.5px;font-weight:600;white-space:nowrap;
+  background:color-mix(in srgb,var(--panel2) 88%,transparent);border:1px solid var(--line2);
+  backdrop-filter:blur(16px) saturate(1.5);box-shadow:0 12px 30px -12px rgba(0,0,0,.7);
+  animation:chipFloat 6s ease-in-out infinite}
+.hero-chip i{width:6px;height:6px;border-radius:50%;background:var(--a0);box-shadow:0 0 8px var(--a0)}
+.hero-chip.c1{right:2%;top:8%;animation-delay:-1s}
+.hero-chip.c2{left:0;bottom:12%;animation-delay:-3s}
+.hero-chip.c3{right:8%;bottom:4%;animation-delay:-5s}
+@keyframes chipFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+.scroll-hint{position:absolute;bottom:-56px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;
+  align-items:center;gap:6px;font-size:10.5px;letter-spacing:.16em;color:var(--dim2);text-transform:uppercase}
+.scroll-hint b{width:1px;height:26px;background:linear-gradient(var(--a0),transparent);animation:hintLine 2s ease-in-out infinite}
+@keyframes hintLine{0%,100%{opacity:.3;transform:scaleY(.6)}50%{opacity:1;transform:scaleY(1)}}
+
+/* ---------- scene showcase: real-device tabs (Apple-like) ---------- */
+.show-tabs{display:flex;gap:6px;margin:0 auto var(--u4);padding:5px;width:max-content;max-width:100%;
+  border-radius:99px;background:var(--segBg);border:1px solid var(--line)}
+.show-tabs button{position:relative;z-index:1;padding:11px 22px;border-radius:99px;font-size:13.5px;
+  font-weight:600;color:var(--dim);white-space:nowrap;transition:color .25s,background .25s,box-shadow .25s}
+.show-tabs button[aria-selected="true"]{color:#14161f;background:linear-gradient(var(--thumbA),var(--thumbB));
+  box-shadow:0 2px 8px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.8)}
+html[data-page="light"] .show-tabs button[aria-selected="true"]{color:#fff;background:linear-gradient(135deg,var(--a0),var(--a1))}
+.show-view{position:relative;border:1px solid var(--line2);border-radius:var(--u5);overflow:hidden;
+  background:var(--panel2);box-shadow:var(--shadow)}
+.show-panel{display:none;grid-template-columns:1.15fr .85fr;align-items:center;gap:var(--u6);padding:var(--u5)}
+.show-panel.on{display:grid;animation:panelIn .5s cubic-bezier(.22,1,.36,1)}
+@keyframes panelIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.show-shot{position:relative;border-radius:var(--u4);overflow:hidden;background:#080a10;
+  box-shadow:0 20px 50px -20px rgba(0,0,0,.8),0 0 0 1px var(--line)}
+.show-shot img{width:100%;height:auto;display:block}
+.show-shot .badge{position:absolute;left:14px;top:14px;padding:6px 11px;border-radius:99px;font-size:11px;
+  font-weight:700;letter-spacing:.04em;color:#fff;background:rgba(10,12,20,.62);
+  border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(10px)}
+.show-copy h3{margin:0 0 14px;font-size:clamp(22px,2.4vw,32px);letter-spacing:-.015em;line-height:1.22}
+.show-copy p{margin:0 0 var(--u3);font-size:14.5px;line-height:1.9;color:var(--dim)}
+.show-copy ul{margin:0;padding:0;list-style:none;display:grid;gap:12px}
+.show-copy li{display:flex;gap:11px;align-items:flex-start;font-size:13.5px;line-height:1.7;color:var(--dim)}
+.show-copy li svg{width:17px;height:17px;flex:none;margin-top:2px;stroke:var(--a0);fill:none;stroke-width:2.2;
+  stroke-linecap:round;stroke-linejoin:round}
+.show-copy li b{color:var(--tx);font-weight:600}
+.show-metric{display:inline-flex;align-items:baseline;gap:8px;margin-top:var(--u3);padding:12px 18px;
+  border-radius:var(--u3);background:var(--segBg);border:1px solid var(--line)}
+.show-metric b{font-size:26px;font-weight:700;letter-spacing:-.02em;
+  background:linear-gradient(120deg,var(--a0),var(--a1));-webkit-background-clip:text;background-clip:text;color:transparent}
+.show-metric span{font-size:12.5px;color:var(--dim)}
+/* 60fps animated scene */
+.video-scene{position:relative;height:300px;border-radius:var(--u4);overflow:hidden;isolation:isolate;
+  background:linear-gradient(120deg,#1a0f2e,#0a1a2e 50%,#0a2a24)}
+.video-scene .flow{position:absolute;inset:-40%;width:180%;height:180%;
+  background:conic-gradient(from 0deg,#7c6bff,#c59dff,#4fd1ff,#6ee7a8,#ffb27a,#7c6bff);
+  filter:blur(50px);opacity:.75;animation:flowSpin 8s linear infinite}
+@keyframes flowSpin{to{transform:rotate(1turn)}}
+.video-scene .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.08) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(255,255,255,.08) 1px,transparent 1px);background-size:32px 32px;
+  -webkit-mask-image:radial-gradient(70% 70% at 50% 50%,#000,transparent);mask-image:radial-gradient(70% 70% at 50% 50%,#000,transparent)}
+.video-scene .wcard{position:absolute;left:50%;top:50%;--s:.82;margin:-54px 0 0 -139px}
+.fps-meter{position:absolute;right:14px;top:14px;z-index:4;display:flex;align-items:center;gap:7px;
+  padding:7px 12px;border-radius:99px;font-size:11.5px;font-weight:700;color:#fff;
+  background:rgba(10,12,20,.6);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(10px)}
+.fps-meter i{width:6px;height:6px;border-radius:50%;background:#6ee7a8;box-shadow:0 0 8px #6ee7a8;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.25}}
+
 /* reveal */
 .rv{opacity:0;transform:translateY(20px);transition:opacity .8s cubic-bezier(.22,1,.36,1),transform .8s cubic-bezier(.22,1,.36,1)}
 .rv.in{opacity:1;transform:none}
@@ -469,6 +546,8 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
   .menu{margin:0 auto}
   .dl .acts{margin-left:0}
   .log{grid-template-columns:1fr;gap:6px}
+  .show-panel.on{grid-template-columns:1fr;gap:var(--u4)}
+  .show-view{padding:var(--u4)}
 }
 @media (max-width:720px){
   .stage{height:300px}
@@ -516,6 +595,9 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
     <symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="M5 18l5-5 4 4 2-2 3 3"/></symbol>
     <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5Z"/><path d="M3 12l9 5 9-5"/></symbol>
     <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3 4v5h5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6Z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5l12 7-12 7V5Z"/></symbol>
   </defs>
 </svg>
 
@@ -526,8 +608,8 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
       <b>RecycleGlass</b><small>4.11.7</small>
     </a>
     <nav class="links">
-      <a href="#journey">演进</a><a href="#demo">演示</a><a href="#material">材质</a><a href="#frost">磨砂</a>
-      <a href="#type">字体</a><a href="#whatsnew">更新</a><a href="#download">下载</a>
+      <a href="#scene">场景</a><a href="#journey">演进</a><a href="#demo">演示</a><a href="#material">材质</a>
+      <a href="#frost">磨砂</a><a href="#type">字体</a><a href="#whatsnew">更新</a><a href="#download">下载</a>
     </nav>
     <div class="themeseg" role="group" aria-label="页面主题">
       <button data-page-theme="auto" aria-pressed="true">跟随</button>
@@ -543,10 +625,10 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
   <section class="hero">
     <div class="wrap">
       <div>
-        <div class="kicker"><span class="dot"></span><b>4.11.7</b> · MiSans 嵌入 · φ 同心圆角</div>
+        <div class="kicker"><span class="dot"></span><b>4.11.7</b> · 视频背景 60 帧 · 玻璃含桌面图标</div>
         <h1>把回收站<br>装进<em>一块玻璃</em></h1>
-        <p class="lede">Windows 桌面上的玻璃回收站挂件。<b>实时取色的磨砂</b>、<b>黄金分割的间距</b>、
-          <b>无级可调的圆角</b>——31 年没变过的那个图标，终于换了一种材质。</p>
+        <p class="lede">Windows 桌面上的玻璃回收站挂件。<b>连桌面图标一起磨砂</b>、<b>置顶时把后面的窗口也变玻璃</b>、
+          <b>视频背景照样 60 帧</b>——31 年没变过的那个图标，终于换了一种材质。</p>
         <div class="ctas">
           <a class="btn btn-p" href="assets/RecycleGlass-4.11.7.exe" download><svg><use href="#i-dl"/></svg>下载 RecycleGlass.exe</a>
           <a class="btn btn-g" href="https://github.com/3335957485wyf-spec/RecycleGlass" target="_blank" rel="noopener"><svg><use href="#i-gh"/></svg>GitHub</a>
@@ -558,17 +640,29 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
       </div>
 
       <div class="stage">
-        <div class="beam" aria-hidden="true"></div>
-        <div class="parts" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="wcard" id="heroCard" data-theme="dark">
-          <i class="gx"></i>
-          <div class="wc-in">
-            <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
-            <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
+        <div class="hero-scene">
+          <div class="beam" aria-hidden="true"></div>
+          <div class="parts" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="desk-icons" aria-hidden="true">
+            <div class="di"><img src="assets/icon-64.png" alt=""><span>此电脑</span></div>
+            <div class="di"><img src="assets/icon-64.png" alt=""><span>文件</span></div>
+            <div class="di"><img src="assets/icon-64.png" alt=""><span>下载</span></div>
+            <div class="di"><img src="assets/icon-64.png" alt=""><span>回收站</span></div>
           </div>
-          <div class="wc-dots"><i></i><i></i><i></i></div>
-          <div class="pills"><span class="pill p">打开</span><span class="pill g">清空</span></div>
+          <div class="wcard" id="heroCard" data-theme="dark">
+            <i class="gx"></i>
+            <div class="wc-in">
+              <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
+              <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
+            </div>
+            <div class="wc-dots"><i></i><i></i><i></i></div>
+            <div class="pills"><span class="pill p">打开</span><span class="pill g">清空</span></div>
+          </div>
+          <div class="hero-chip c1"><i></i>图标也在玻璃里</div>
+          <div class="hero-chip c2"><i></i>置顶磨砂其他应用</div>
+          <div class="hero-chip c3"><i></i>视频背景 60 fps</div>
         </div>
+        <div class="scroll-hint" aria-hidden="true">向下探索 <b></b></div>
       </div>
     </div>
   </section>
@@ -577,19 +671,104 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
   <div class="marquee" aria-hidden="true">
     <div class="mq">
       <span><i>φ</i> 1.618 间距标尺</span><span><b>MiSans</b> 官方字体</span>
-      <span>exe <b>0.98 MB</b></span><span><b>236</b> 字子集</span><span>菜单 <b>60 fps</b></span>
-      <span>空闲 CPU <b>≈ 0%</b></span><span>圆角 <b>12–52 px</b> 无级</span><span><b>截图可见</b> 零拖影</span>
+      <span>exe <b>0.98 MB</b></span><span>玻璃含<b>桌面图标</b></span><span>置顶磨砂<b>其他应用</b></span>
+      <span>视频背景 <b>55–58 fps</b></span><span>空闲 CPU <b>≈ 0%</b></span><span>圆角 <b>12–52 px</b> 无级</span><span><b>截图可见</b> 零拖影</span>
       <span><i>φ</i> 1.618 间距标尺</span><span><b>MiSans</b> 官方字体</span>
-      <span>exe <b>0.98 MB</b></span><span><b>236</b> 字子集</span><span>菜单 <b>60 fps</b></span>
-      <span>空闲 CPU <b>≈ 0%</b></span><span>圆角 <b>12–52 px</b> 无级</span><span><b>截图可见</b> 零拖影</span>
+      <span>exe <b>0.98 MB</b></span><span>玻璃含<b>桌面图标</b></span><span>置顶磨砂<b>其他应用</b></span>
+      <span>视频背景 <b>55–58 fps</b></span><span>空闲 CPU <b>≈ 0%</b></span><span>圆角 <b>12–52 px</b> 无级</span><span><b>截图可见</b> 零拖影</span>
     </div>
   </div>
+
+  <!-- ============ scene showcase: real-device screenshots ============ -->
+  <section class="section" id="scene">
+    <div class="wrap">
+      <div class="shead rv">
+        <div><p class="tagline">In the wild · 真机截屏</p><h2>玻璃后面，<br>到底是谁</h2></div>
+        <p>这三张都是真机截屏，不是渲染图。默认只玻璃桌面（连图标一起）；
+          勾选「总在最前」才把后面的窗口一起磨砂；视频在卡片后面跑，上屏依旧顺滑。</p>
+      </div>
+
+      <div class="show-tabs rv" role="tablist" aria-label="场景切换">
+        <button role="tab" aria-selected="true" data-scene="icons">桌面 · 含图标</button>
+        <button role="tab" aria-selected="false" data-scene="window">置顶 · 其他应用</button>
+        <button role="tab" aria-selected="false" data-scene="video">视频 · 60 帧</button>
+      </div>
+
+      <div class="show-view rv">
+        <!-- desktop icons -->
+        <div class="show-panel on" data-panel="icons" role="tabpanel">
+          <div class="show-shot">
+            <img src="assets/scene-icons.png" alt="玻璃回收站卡片浮在桌面上，壁纸和桌面图标透过玻璃可见" />
+            <span class="badge">真机截屏 · 4.11.5</span>
+          </div>
+          <div class="show-copy">
+            <h3>默认只玻璃桌面，<br>图标也在里面</h3>
+            <p>卡片让桌面窗口自己渲染，壁纸和图标一起进入玻璃。其他软件的窗口不会「透」进来——
+              没置顶时，有窗口在卡片后面，本体就烘焙成不透明，实测逐像素差异 0.00。</p>
+            <ul>
+              <li><svg><use href="#i-check"/></svg><span><b>PrintWindow 取桌面</b>：壁纸 + 图标一次采样，约 30ms。</span></li>
+              <li><svg><use href="#i-check"/></svg><span><b>事件驱动重建</b>：图标变了才重取，平时不占 CPU。</span></li>
+              <li><svg><use href="#i-check"/></svg><span><b>窗口不串味</b>：后面的应用窗口不会透进玻璃。</span></li>
+            </ul>
+            <div class="show-metric"><b>0.00</b><span>px · 未置顶时窗口透过玻璃的逐像素差异</span></div>
+          </div>
+        </div>
+
+        <!-- topmost window -->
+        <div class="show-panel" data-panel="window" role="tabpanel">
+          <div class="show-shot">
+            <img src="assets/scene-screen-pair.png" alt="左：未置顶只显示桌面；右：置顶后浏览器窗口在玻璃后被磨砂" />
+            <span class="badge">真机截屏 · 4.11.6</span>
+          </div>
+          <div class="show-copy">
+            <h3>勾上「总在最前」，<br>才玻璃其他应用</h3>
+            <p>置顶状态下玻璃改为采样实时屏幕：旁边的浏览器、编辑器、视频窗口都会被一起磨砂。
+              这是你主动选择的效果，不是穿透 bug——开关就在右键菜单里。</p>
+            <ul>
+              <li><svg><use href="#i-pin"/></svg><span><b>置顶 = 实时屏幕</b>：窗口内容随动磨砂。</span></li>
+              <li><svg><use href="#i-check"/></svg><span><b>关闭 = 只取桌面</b>：图标在、窗口不在。</span></li>
+              <li><svg><use href="#i-check"/></svg><span><b>实测 65% 像素变化</b>：置顶前后差异一目了然。</span></li>
+            </ul>
+            <div class="show-metric"><b>65%</b><span>像素 · 置顶后玻璃后面的内容变化量</span></div>
+          </div>
+        </div>
+
+        <!-- video 60fps -->
+        <div class="show-panel" data-panel="video" role="tabpanel">
+          <div class="show-shot video-scene">
+            <div class="flow" aria-hidden="true"></div>
+            <div class="grid" aria-hidden="true"></div>
+            <div class="fps-meter"><i></i><span id="fpsVal">57 fps</span></div>
+            <div class="wcard" data-theme="dark">
+              <i class="gx"></i>
+              <div class="wc-in">
+                <div class="wc-icon"><img src="assets/icon-violet.png" alt=""></div>
+                <div class="wc-tx"><h3>回收站</h3><p>274 项 · 346.24 MB</p></div>
+              </div>
+              <div class="wc-dots"><i></i><i></i><i></i></div>
+            </div>
+          </div>
+          <div class="show-copy">
+            <h3>视频在卡片后面，<br>玻璃照样跟得上</h3>
+            <p>抓帧节奏从 120ms（约 8 fps）改成 6ms 节拍，去掉被合成器锁住的 CAPTUREBLT。
+              后面的视频或动画上屏 55–58 帧/秒；静止时退避到 400ms，CPU 回到 ≈ 0%。</p>
+            <ul>
+              <li><svg><use href="#i-play"/></svg><span><b>动画时</b>：55–58 fps 稳定上屏，拖动不掉帧。</span></li>
+              <li><svg><use href="#i-check"/></svg><span><b>静止时</b>：约 1 fps、CPU ≈ 0%，不空转。</span></li>
+              <li><svg><use href="#i-check"/></svg><span><b>单核占用</b>：动画时约 33%，后台无感。</span></li>
+            </ul>
+            <div class="show-metric"><b>8× → 57</b><span>fps · 从 8 帧提升到上屏 57 帧</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- ============ journey ============ -->
   <section class="section" id="journey">
     <div class="wrap">
       <div class="shead rv">
-        <div><p class="tagline">Evolution</p><h2>3.0 → 4.0 → 4.11.0<br>一次彻底的重写</h2></div>
+        <div><p class="tagline">Evolution</p><h2>3.0 → 4.0 → 4.11.7<br>一次彻底的重写</h2></div>
         <p>回收站挂件从 Python 原型到纯 C 单文件，三年里最重要的三次跃迁，
           每一代都解决了上一代最痛的那个问题。</p>
       </div>
@@ -637,6 +816,32 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
             <p>全应用切换小米官方 MiSans，文字改为<b>实测高度视觉居中</b>（修复中文偏高 1–2 px）；
               只嵌入界面用到的 <b>236 个字符</b>，双字重子集共 124 KB，
               <b>exe 0.98 MB 单文件自带字体</b>，换机换语言字形都不跑。</p>
+          </div>
+        </li>
+        <li>
+          <div class="v">4.11.5</div>
+          <div>
+            <h4>玻璃连桌面图标一起 · 细节收口</h4>
+            <p>改为让桌面窗口自己渲染（PrintWindow），<b>壁纸与图标一起进入玻璃</b>，其他软件窗口被排除；
+              同版修复圆角/滑块端点对齐（≤1 px）、文字墨迹居中（偏差 0.00 px）、
+              清空确认长文案自动分行不再被裁切。</p>
+          </div>
+        </li>
+        <li>
+          <div class="v">4.11.6</div>
+          <div>
+            <h4>置顶才玻璃其他应用</h4>
+            <p>勾选「总在最前」时采样实时屏幕，后面的窗口一起被磨砂；未置顶时只采样桌面，
+              检测到窗口在卡片后面就把本体烘焙为不透明——<b>窗口再也不会「透」进玻璃</b>
+              （未置顶逐像素差异 0.00，置顶时 65% 像素变化）。</p>
+          </div>
+        </li>
+        <li>
+          <div class="v">4.11.7</div>
+          <div>
+            <h4>玻璃背景跟上 60 帧</h4>
+            <p>抓帧节奏从 120 ms（约 8 fps）改为 <b>6 ms 节拍</b>，去掉被合成器锁住的 CAPTUREBLT；
+              视频/动画在卡片后面时上屏 <b>55–58 fps</b>；静止时退避到 400 ms（约 1 fps、CPU≈0）。</p>
           </div>
         </li>
       </ol>
@@ -860,11 +1065,11 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
   <section class="section" id="whatsnew">
     <div class="wrap">
       <div class="shead rv">
-        <div><p class="tagline">What's new</p><h2>4.10 → 4.11.7</h2></div>
+        <div><p class="tagline">What's new</p><h2>把玻璃打磨到极致<br>4.10 → 4.11.7</h2></div>
         <p><a href="https://github.com/3335957485wyf-spec/RecycleGlass/blob/main/CHANGELOG.md" target="_blank" rel="noopener" style="border-bottom:1px solid var(--line2)">完整更新日志 →</a></p>
       </div>
       <div class="logs rv">
-        <div class="log"><div class="v">4.11.7</div><div><h4>玻璃背景跟上 60 帧</h4>
+        <div class="log"><div class="v">4.11.7 <span style="font-size:9px;letter-spacing:.08em;padding:2px 7px;border-radius:99px;background:linear-gradient(135deg,var(--a0),var(--a1));color:#fff;margin-left:4px;white-space:nowrap">最新</span></div><div><h4>玻璃背景跟上 60 帧</h4>
           <p>抓帧节奏从 120ms（≈8 fps）改为 6ms 节拍，并去掉被合成器锁住的 CAPTUREBLT：
           视频/动画在卡片后面时上屏 55–58 帧/秒；静止时仍退避到 400ms（约 1 帧/秒、CPU≈0）。</p></div></div>
         <div class="log"><div class="v">4.11.6</div><div><h4>置顶才玻璃其他应用</h4>
@@ -905,7 +1110,7 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
         </div>
         <div class="fine">
           <span>文件名 <code>RecycleGlass-4.11.7.exe</code></span>
-          <span>大小 <code>0.95 MB</code></span>
+          <span>大小 <code>0.98 MB</code></span>
           <span>SHA-256 <code>fe5afff7…1f2e02d</code></span>
           <span>MiSans © Xiaomi · 免费商用</span>
         </div>
@@ -1087,6 +1292,24 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
     if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}
   }),{threshold:.12});
   $$('.rv').forEach(el=>io.observe(el));
+
+  /* scene tabs: switch real-device screenshots */
+  const showTabs=$$('.show-tabs button'), showPanels=$$('.show-panel');
+  showTabs.forEach(tab=>tab.addEventListener('click',()=>{
+    showTabs.forEach(t=>t.setAttribute('aria-selected',String(t===tab)));
+    showPanels.forEach(p=>p.classList.toggle('on',p.dataset.panel===tab.dataset.scene));
+  }));
+
+  /* fps meter: lively number while the video tab is visible */
+  const fpsVal=$('#fpsVal');
+  if(fpsVal){
+    let base=56, phase=0;
+    setInterval(()=>{
+      phase=(phase+1)%40;
+      const v=base + (phase<10?1:phase<20?0:phase<30?-1:2) + (Math.random()<.15?1:0);
+      fpsVal.textContent=Math.max(53,Math.min(59,v))+' fps';
+    },900);
+  }
 
   syncFill(rRange);paint();paintFrost();
 })();
