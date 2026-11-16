@@ -13,6 +13,9 @@ typedef enum {
     S_BTN_OPEN,
     S_BTN_EMPTY,
     S_DROP_HINT,
+    S_DROP_COUNT,           /* %d items · %ls */
+    S_DROP_COUNT_DIR,       /* %d items incl. folders */
+    S_DROP_COUNT_ONLY,      /* %d items */
     S_TOAST_RECYCLED,       /* %lld */
     S_TOAST_NOTHING,
     S_TOAST_EMPTY_DONE,
@@ -30,6 +33,7 @@ typedef enum {
     S_MENU_EMPTY,
     S_MENU_APPEARANCE,
     S_MENU_AUTOSTART,
+    S_MENU_CAPTURE,
     S_MENU_DPI,
     S_MENU_TOPMOST,
     S_MENU_EXIT,
@@ -53,6 +57,26 @@ typedef enum {
     S_STATUS_EMPTY,
     S_SETTINGS_TITLE,
     S_MENU_RESET,
+    S_MENU_MATERIAL,
+    S_SET_GLASS,
+    S_SET_ACCENT,
+    S_SET_CORNER,
+    S_SET_REFRACTION,
+    S_SET_ICON,
+    S_OPT_CRYSTAL,
+    S_OPT_AURORA,
+    S_OPT_MIST,
+    S_OPT_BLUE,
+    S_OPT_VIOLET,
+    S_OPT_MINT,
+    S_OPT_PEACH,
+    S_OPT_AMBER,
+    S_OPT_LIME,
+    S_OPT_ICON_ACCENT,
+    S_OPT_ICON_CLASSIC,
+    S_CONFIRM_ACTION,
+    S_TOAST_RESET,
+    S_TOAST_BUSY,
     S_COUNT
 } RgStr;
 

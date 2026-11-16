@@ -9,12 +9,19 @@ void config_defaults(Config *c)
     c->version       = RG_CONFIG_VERSION;
     c->x             = -1;
     c->y             = -1;
-    c->opacity       = 0.78f;
+    c->opacity       = 0.60f;
     c->material      = 0.55f;
     c->blur_radius   = 24.0f;
     wcscpy_s(c->size, RG_COUNT(c->size), L"normal");
     wcscpy_s(c->blur_mode, RG_COUNT(c->blur_mode), L"screen");
     wcscpy_s(c->theme, RG_COUNT(c->theme), L"system");
+    wcscpy_s(c->glass, RG_COUNT(c->glass), L"crystal");
+    wcscpy_s(c->accent, RG_COUNT(c->accent), L"blue");
+    wcscpy_s(c->icon, RG_COUNT(c->icon), L"accent");
+    c->corner_radius = 32.0f;
+    c->refraction    = 0.55f;
+    c->motion        = 0.70f;
+    c->capture_visible = 1;
     c->auto_dpi      = 0;
     c->topmost       = 0;
     wcscpy_s(c->language, RG_COUNT(c->language), L"auto");
@@ -60,16 +67,19 @@ void config_sanitise(Config *c)
     static const wchar_t *blurs[]   = { L"screen", L"wallpaper" };
     static const wchar_t *sizes[]   = { L"small", L"normal", L"large" };
     static const wchar_t *langs[]   = { L"auto", L"zh", L"en" };
+    static const wchar_t *glasses[] = { L"crystal", L"aurora", L"mist" };
+    static const wchar_t *accents[] = { L"blue", L"violet", L"mint",
+                                        L"peach", L"amber", L"lime" };
+    static const wchar_t *icons[]   = { L"accent", L"classic" };
 
     if (!in_set(c->theme, themes, RG_COUNT(themes)))
         wcscpy_s(c->theme, RG_COUNT(c->theme), L"system");
 
-    /* "screen" blurs what is really behind the widget; "wallpaper" blurs the
-     * wallpaper file.  Older configs said "native", which now means screen. */
-    if (wcscmp(c->blur_mode, L"native") == 0)
-        wcscpy_s(c->blur_mode, RG_COUNT(c->blur_mode), L"screen");
-    if (!in_set(c->blur_mode, blurs, RG_COUNT(blurs)))
-        wcscpy_s(c->blur_mode, RG_COUNT(c->blur_mode), L"screen");
+    /* The desktop/wallpaper toggle is gone: the widget lives on the desktop,
+     * so the backdrop is always the real screen.  Any value still maps to
+     * "screen"; the wallpaper capture code stays but is unreachable. */
+    wcscpy_s(c->blur_mode, RG_COUNT(c->blur_mode), L"screen");
+    (void)blurs;
 
     if (!in_set(c->size, sizes, RG_COUNT(sizes)))
         wcscpy_s(c->size, RG_COUNT(c->size), L"normal");
@@ -77,9 +87,19 @@ void config_sanitise(Config *c)
     if (!in_set(c->language, langs, RG_COUNT(langs)))
         wcscpy_s(c->language, RG_COUNT(c->language), L"auto");
 
-    c->opacity     = clamp_f(c->opacity, 0.78f, 0.2f, 1.0f);
-    c->material    = clamp_f(c->material, 0.55f, 0.0f, 1.0f);
-    c->blur_radius = clamp_f(c->blur_radius, 24.0f, 0.0f, 60.0f);
+    if (!in_set(c->glass, glasses, RG_COUNT(glasses)))
+        wcscpy_s(c->glass, RG_COUNT(c->glass), L"crystal");
+    if (!in_set(c->accent, accents, RG_COUNT(accents)))
+        wcscpy_s(c->accent, RG_COUNT(c->accent), L"blue");
+    if (!in_set(c->icon, icons, RG_COUNT(icons)))
+        wcscpy_s(c->icon, RG_COUNT(c->icon), L"accent");
+
+    c->opacity       = clamp_f(c->opacity, 0.60f, 0.30f, 1.0f);
+    c->material      = clamp_f(c->material, 0.55f, 0.0f, 1.0f);
+    c->blur_radius   = clamp_f(c->blur_radius, 24.0f, 0.0f, 48.0f);
+    c->corner_radius = clamp_f(c->corner_radius, 32.0f, 12.0f, 52.0f);
+    c->refraction    = clamp_f(c->refraction, 0.55f, 0.0f, 1.0f);
+    c->motion        = clamp_f(c->motion, 0.70f, 0.0f, 1.0f);
 
     c->x = clamp_i(c->x, -1, -32768, 32768);
     c->y = clamp_i(c->y, -1, -32768, 32768);
@@ -91,7 +111,8 @@ void config_sanitise(Config *c)
     if (c->last_count > 10000000LL) c->last_count = 10000000LL;
     if (c->last_size < 0) c->last_size = 0;
 
-    c->auto_dpi      = c->auto_dpi ? 1 : 0;
+    c->auto_dpi        = c->auto_dpi ? 1 : 0;
+    c->capture_visible = c->capture_visible ? 1 : 0;
     c->topmost       = c->topmost ? 1 : 0;
     c->autostart     = c->autostart ? 1 : 0;
     c->confirm_empty = c->confirm_empty ? 1 : 0;
@@ -284,6 +305,9 @@ void config_load(Config *c)
         if (json_double(text, L"opacity", &dv))     c->opacity = (float)dv;
         if (json_double(text, L"material", &dv))    c->material = (float)dv;
         if (json_double(text, L"blur_radius", &dv)) c->blur_radius = (float)dv;
+        if (json_double(text, L"corner_radius", &dv)) c->corner_radius = (float)dv;
+        if (json_double(text, L"refraction", &dv))    c->refraction = (float)dv;
+        if (json_double(text, L"motion", &dv))        c->motion = (float)dv;
         if (json_int(text, L"width", &iv))  c->width = (int)iv;
         if (json_int(text, L"height", &iv)) c->height = (int)iv;
         if (json_int(text, L"last_count", &iv)) c->last_count = iv;
@@ -292,9 +316,13 @@ void config_load(Config *c)
         json_str(text, L"size", c->size, RG_COUNT(c->size));
         json_str(text, L"blur_mode", c->blur_mode, RG_COUNT(c->blur_mode));
         json_str(text, L"theme", c->theme, RG_COUNT(c->theme));
+        json_str(text, L"glass", c->glass, RG_COUNT(c->glass));
+        json_str(text, L"accent", c->accent, RG_COUNT(c->accent));
+        json_str(text, L"icon", c->icon, RG_COUNT(c->icon));
         json_str(text, L"language", c->language, RG_COUNT(c->language));
 
         if (json_bool(text, L"auto_dpi", &bv))      c->auto_dpi = bv;
+        if (json_bool(text, L"capture_visible", &bv)) c->capture_visible = bv;
         if (json_bool(text, L"topmost", &bv))       c->topmost = bv;
         if (json_bool(text, L"autostart", &bv))     c->autostart = bv;
         if (json_bool(text, L"confirm_empty", &bv)) c->confirm_empty = bv;
@@ -335,10 +363,17 @@ BOOL config_save(const Config *c)
         L"  \"y\": %d,\n"
         L"  \"opacity\": %.3f,\n"
         L"  \"material\": %.3f,\n"
-        L"  \"blur_radius\": %.1f,\n"
+        L"  \"blur_radius\": %.3f,\n"
+        L"  \"corner_radius\": %.3f,\n"
+        L"  \"refraction\": %.3f,\n"
+        L"  \"motion\": %.3f,\n"
         L"  \"size\": \"%ls\",\n"
         L"  \"blur_mode\": \"%ls\",\n"
         L"  \"theme\": \"%ls\",\n"
+        L"  \"glass\": \"%ls\",\n"
+        L"  \"accent\": \"%ls\",\n"
+        L"  \"icon\": \"%ls\",\n"
+        L"  \"capture_visible\": %ls,\n"
         L"  \"auto_dpi\": %ls,\n"
         L"  \"topmost\": %ls,\n"
         L"  \"language\": \"%ls\",\n"
@@ -352,7 +387,9 @@ BOOL config_save(const Config *c)
         RG_CONFIG_VERSION,
         c->x, c->y,
         c->opacity, c->material, c->blur_radius,
-        c->size, c->blur_mode, c->theme,
+        c->corner_radius, c->refraction, c->motion,
+        c->size, c->blur_mode, c->theme, c->glass, c->accent, c->icon,
+        c->capture_visible ? L"true" : L"false",
         c->auto_dpi ? L"true" : L"false",
         c->topmost ? L"true" : L"false",
         c->language,

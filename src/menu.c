@@ -22,7 +22,7 @@
 enum { ROW_SEP = 0, ROW_CMD, ROW_TOGGLE, ROW_PAGE, ROW_BACK, ROW_SLIDER,
        ROW_SEGMENT, ROW_CONFIRM, ROW_GAP };
 
-enum { PAGE_MAIN = 0, PAGE_APPEARANCE = 1, PAGE_DELETE = 2 };
+enum { PAGE_MAIN = 0, PAGE_APPEARANCE = 1, PAGE_DELETE = 2, PAGE_MATERIAL = 3 };
 
 typedef struct {
     int            kind;
@@ -34,13 +34,16 @@ typedef struct {
     int            icon;    /* RgIcon */
     float          v, vmin, vmax;
     int            percent; /* slider readout: 1 -> %, 0 -> px */
+    int            swatches;/* segmented row drawn as gradient colour dots */
     int            nseg;
-    const wchar_t *seg[4];
-    int            seg_cmd[4];
+    const wchar_t *seg[6];
+    int            seg_cmd[6];
     int            seg_cur;
 } Row;
 
 /* ------------------------------------------------------------- animation */
+
+static MenuHost *g_host;
 
 typedef struct {
     float     v, from, to;
@@ -51,14 +54,25 @@ typedef struct {
 
 static void anim_to(Anim *a, float to, int dur)
 {
+    float motion = g_host && g_host->cfg
+                 ? rg_clampf(g_host->cfg->motion, 0.0f, 1.0f) : 1.0f;
+
     if (a->active && fabsf(a->to - to) < 0.001f)
         return;
     if (!a->active && fabsf(a->v - to) < 0.001f)
         return;
+    if (motion <= 0.01f)
+    {
+        a->v = to;
+        a->from = to;
+        a->to = to;
+        a->active = FALSE;
+        return;
+    }
     a->from = a->v;
     a->to = to;
     a->t0 = GetTickCount64();
-    a->dur = dur;
+    a->dur = (int)lroundf((float)dur * (0.38f + 0.90f * motion));
     a->active = TRUE;
 }
 
@@ -88,9 +102,25 @@ static BOOL anim_step(Anim *a)
     return TRUE;
 }
 
-static MenuHost  *g_host;
 static HWND       g_hwnd;
 static RgSurface  g_surf;
+
+/* The glass body (shadow + blur + tint + rim) is identical across every frame
+ * of the open/close and page animations: only the rows on top change.  Painting
+ * it every frame was the whole reason opening the menu stuttered - a panel-sized
+ * per-pixel pass plus GDI+ shadow and rim, 60+ times a second.  It is rendered
+ * once into this cache and memcpy'd afterwards. */
+static BYTE *g_panel_cache;
+static int   g_panel_w, g_panel_h;
+
+typedef struct {
+    int w, h, radius, dark, style, accent;
+    int op, mat, refr;
+    int bd_valid, bdw, bdh, bdx, bdy, bdq;
+} PanelKey;
+
+static PanelKey g_panel_key;
+static BOOL     g_panel_valid;
 static GpFontFamily *g_family;
 static GpFont    *g_font;
 static GpFont    *g_font_small;
@@ -105,6 +135,7 @@ static int  g_hover = -1;
 
 static int  g_drag_slider = -1;
 static int  g_drag_slider_final;    /* row index being dragged */
+static int  g_seg_hover = -1;       /* segment under the pointer in a row */
 static ULONGLONG g_slider_tick;
 static BOOL g_shown;
 static BOOL g_closing;
@@ -132,6 +163,10 @@ static int  g_confirm_hover;    /* 0 none, 1 cancel, 2 empty */
 
 static int  PAD, ROW_H, SEP_H, RADIUS, FS, PANEL_W, ICON_SZ, SLIDER_H,
             SEG_H, CONFIRM_EXTRA, MARGIN, ROW_R;
+/* The golden spacing scale.  U0 is the panel -> content inset; U1 is the one
+ * gap used between every pair of elements; U2 / U3 are its phi recessions for
+ * small optical insets. */
+static int  U0, U1, U2, U3;
 static RECT g_rowrect[24];
 
 /* ------------------------------------------------------------------ layout */
@@ -166,18 +201,42 @@ static float scf(float base, float lo)
 
 static void relayout(void)
 {
-    PAD           = sc(10, 6);
+    /* The menu and the card now share ONE corner radius - no more "menu is
+     * 80% of the card" mismatch.  From that radius the whole spacing scale is
+     * derived, so changing the slider rescales gaps and radii together. */
+    float R = g_host ? g_host->cfg->corner_radius : 32.0f;
+    float U = rg_phi_unit(R);
+
     ROW_H         = sc(44, 30);
-    SEP_H         = sc(11, 7);
-    RADIUS        = sc(18, 11);
+    RADIUS        = sc((int)lroundf(R), 15);
+    /* Same golden floor as the card: a small corner radius must not collapse
+     * the panel's breathing room.  12 keeps the menu readable at R = 12, and
+     * phi scaling still takes over once R / phi grows past it. */
+    U0            = sc(rg_phi_step(U, 0), 12);  /* R / phi       */
+    U1            = sc(rg_phi_step(U, 1), 4);   /* R / phi^2     */
+    U2            = sc(rg_phi_step(U, 2), 3);   /* R / phi^3     */
+    U3            = sc(rg_phi_step(U, 3), 2);   /* R / phi^4     */
+
+    PAD           = U0;             /* every side of the panel: one U0 */
+    SEP_H         = U1;             /* section separators: one U1      */
     FS            = sc(16, 12);
     PANEL_W       = sc(308, 208);
     ICON_SZ       = sc(19, 14);
     SLIDER_H      = sc(60, 42);
-    SEG_H         = sc(76, 52);
+    SEG_H         = sc(76, 54);
     CONFIRM_EXTRA = sc(62, 42);
     MARGIN        = render_shadow_pad();
-    ROW_R         = sc(8, 5);
+
+    /* Concentric: content inset by U0 -> radius R - U0 = R / phi^2 = U1.
+     * Clamped to half a row so a normal row never turns into a capsule.
+     * Floor 10: with a small panel radius the concentric result collapses
+     * towards 0 and every row highlight read as a hard rectangle; a soft
+     * 10 px radius keeps the rows round at any slider position. */
+    ROW_R = (int)lroundf(rg_concentric((float)RADIUS, (float)PAD));
+    if (ROW_R < 10)
+        ROW_R = 10;
+    if (ROW_R > ROW_H / 2)
+        ROW_R = ROW_H / 2;
 }
 
 /* The prompt is either fully open (it owns its page) or folded away. */
@@ -225,6 +284,29 @@ static int size_index(void)
     return 1;
 }
 
+static int glass_index(void)
+{
+    if (wcscmp(g_host->cfg->glass, L"aurora") == 0) return 1;
+    if (wcscmp(g_host->cfg->glass, L"mist") == 0) return 2;
+    return 0;
+}
+
+static int accent_index(void)
+{
+    static const wchar_t *names[6] = { L"blue", L"violet", L"mint",
+                                       L"peach", L"amber", L"lime" };
+    int i;
+    for (i = 0; i < 6; i++)
+        if (wcscmp(g_host->cfg->accent, names[i]) == 0)
+            return i;
+    return 0;
+}
+
+static int icon_index(void)
+{
+    return wcscmp(g_host->cfg->icon, L"classic") == 0 ? 1 : 0;
+}
+
 static Row *add(int kind, int id, const wchar_t *label, int icon)
 {
     Row *r = &g_rows[g_nrows++];
@@ -261,6 +343,9 @@ static void build_rows(void)
         r = add(ROW_TOGGLE, RG_CMD_AUTOSTART, T(S_MENU_AUTOSTART), IC_POWER);
         r->checked = g_host->cfg->autostart;
 
+        r = add(ROW_TOGGLE, RG_CMD_CAPTURE, T(S_MENU_CAPTURE), IC_CAMERA);
+        r->checked = g_host->cfg->capture_visible;
+
         r = add(ROW_TOGGLE, RG_CMD_DPI, T(S_MENU_DPI), IC_MONITOR);
         r->checked = g_host->cfg->auto_dpi;
 
@@ -278,7 +363,7 @@ static void build_rows(void)
         r = add(ROW_CONFIRM, RG_CMD_EMPTY, T(S_MENU_EMPTY), IC_TRASH);
         r->enabled = (g_host->count > 0);
     }
-    else
+    else if (g_page == PAGE_APPEARANCE)
     {
         add(ROW_BACK, 0, T(S_MENU_APPEARANCE), IC_CHEVRON_LEFT);
         add(ROW_SEP, 0, NULL, -1);
@@ -293,7 +378,24 @@ static void build_rows(void)
         r->seg_cmd[2] = RG_CMD_THEME_DARK;
         r->seg_cur = theme_index();
 
-        r = add(ROW_SEGMENT, 0, T(S_SET_SIZE), IC_MAXIMIZE);
+        r = add(ROW_SEGMENT, 0, T(S_SET_ACCENT), IC_DROPLET);
+        r->swatches = 1;
+        r->nseg = 6;
+        r->seg[0] = T(S_OPT_BLUE);
+        r->seg[1] = T(S_OPT_VIOLET);
+        r->seg[2] = T(S_OPT_MINT);
+        r->seg[3] = T(S_OPT_PEACH);
+        r->seg[4] = T(S_OPT_AMBER);
+        r->seg[5] = T(S_OPT_LIME);
+        r->seg_cmd[0] = RG_CMD_ACCENT_BASE;
+        r->seg_cmd[1] = RG_CMD_ACCENT_BASE + 1;
+        r->seg_cmd[2] = RG_CMD_ACCENT_BASE + 2;
+        r->seg_cmd[3] = RG_CMD_ACCENT_BASE + 3;
+        r->seg_cmd[4] = RG_CMD_ACCENT_BASE + 4;
+        r->seg_cmd[5] = RG_CMD_ACCENT_BASE + 5;
+        r->seg_cur = accent_index();
+
+        r = add(ROW_SEGMENT, 0, T(S_SET_SIZE), IC_MONITOR);
         r->nseg = 3;
         r->seg[0] = T(S_OPT_SMALL);
         r->seg[1] = T(S_OPT_NORMAL);
@@ -303,13 +405,38 @@ static void build_rows(void)
         r->seg_cmd[2] = RG_CMD_SIZE_LARGE;
         r->seg_cur = size_index();
 
-        r = add(ROW_SEGMENT, 0, T(S_SET_BLUR_MODE), IC_WIND);
+        r = add(ROW_SLIDER, RG_SET_CORNER, T(S_SET_CORNER), IC_MAXIMIZE);
+        r->vmin = 12.0f;
+        r->vmax = 52.0f;
+        r->v = rg_clampf(g_host->cfg->corner_radius, r->vmin, r->vmax);
+        r->percent = 0;
+
+        r = add(ROW_SEGMENT, 0, T(S_SET_ICON), IC_IMAGE);
         r->nseg = 2;
-        r->seg[0] = T(S_OPT_NATIVE);
-        r->seg[1] = T(S_OPT_WALLPAPER);
-        r->seg_cmd[0] = RG_CMD_BLUR_SCREEN;
-        r->seg_cmd[1] = RG_CMD_BLUR_WALLPAPER;
-        r->seg_cur = (wcscmp(g_host->cfg->blur_mode, L"wallpaper") == 0) ? 1 : 0;
+        r->seg[0] = T(S_OPT_ICON_ACCENT);
+        r->seg[1] = T(S_OPT_ICON_CLASSIC);
+        r->seg_cmd[0] = RG_CMD_ICON_ACCENT;
+        r->seg_cmd[1] = RG_CMD_ICON_CLASSIC;
+        r->seg_cur = icon_index();
+
+        add(ROW_SEP, 0, NULL, -1);
+        add(ROW_PAGE, PAGE_MATERIAL, T(S_MENU_MATERIAL), IC_LAYERS);
+        add(ROW_CMD, RG_CMD_RESET, T(S_MENU_RESET), IC_ROTATE_CCW);
+    }
+    else
+    {
+        r = add(ROW_BACK, PAGE_APPEARANCE, T(S_MENU_MATERIAL), IC_CHEVRON_LEFT);
+        add(ROW_SEP, 0, NULL, -1);
+
+        r = add(ROW_SEGMENT, 0, T(S_SET_GLASS), IC_GEM);
+        r->nseg = 3;
+        r->seg[0] = T(S_OPT_CRYSTAL);
+        r->seg[1] = T(S_OPT_AURORA);
+        r->seg[2] = T(S_OPT_MIST);
+        r->seg_cmd[0] = RG_CMD_GLASS_CRYSTAL;
+        r->seg_cmd[1] = RG_CMD_GLASS_AURORA;
+        r->seg_cmd[2] = RG_CMD_GLASS_MIST;
+        r->seg_cur = glass_index();
 
         add(ROW_SEP, 0, NULL, -1);
 
@@ -330,6 +457,12 @@ static void build_rows(void)
         r->vmax = 48.0f;
         r->v = rg_clampf(g_host->cfg->blur_radius, r->vmin, r->vmax);
         r->percent = 0;
+
+        r = add(ROW_SLIDER, RG_SET_REFRACTION, T(S_SET_REFRACTION), IC_TRIANGLE);
+        r->vmin = 0.0f;
+        r->vmax = 1.0f;
+        r->v = rg_clampf(g_host->cfg->refraction, r->vmin, r->vmax);
+        r->percent = 1;
 
         add(ROW_SEP, 0, NULL, -1);
         add(ROW_CMD, RG_CMD_RESET, T(S_MENU_RESET), IC_ROTATE_CCW);
@@ -362,25 +495,107 @@ static ARGB fade(ARGB c, float k)
     return (c & 0x00FFFFFF) | ((ARGB)a << 24);
 }
 
+static GpPath *round_path_n(float x, float y, float w, float h, float radius,
+                            float n);
+
+/* A line-gradient brush whose stops match the card's accent pair.  Gamma
+ * correction matters here: linear RGB interpolation through a saturated pair
+ * leaves a muddy midpoint on dark glass. */
+static GpLineGradient *gradient_brush(float x, float y, float w, float h,
+                                      ARGB from, ARGB to)
+{
+    GpRectF box;
+    GpLineGradient *brush = NULL;
+
+    box.X = x;
+    box.Y = y;
+    box.Width = w > 0.5f ? w : 1.0f;
+    box.Height = h > 0.5f ? h : 1.0f;
+    if (GdipCreateLineBrushFromRect(&box, from, to,
+                                    LinearGradientModeForwardDiagonal,
+                                    WrapModeTileFlipXY, &brush) == Ok)
+        GdipSetLineGammaCorrection(brush, TRUE);
+    return brush;
+}
+
+static void fill_round_grad_n(GpGraphics *g, float x, float y, float w, float h,
+                              float radius, ARGB from, ARGB to, float n)
+{
+    GpPath *path;
+    GpLineGradient *brush;
+
+    if (w <= 0.5f || h <= 0.5f)
+        return;
+    path = round_path_n(x, y, w, h, radius, n);
+    if (!path)
+        return;
+    brush = gradient_brush(x, y, w, h, from, to);
+    if (brush)
+    {
+        GdipFillPath(g, (GpBrush *)brush, path);
+        GdipDeleteBrush((GpBrush *)brush);
+    }
+    GdipDeletePath(path);
+}
+
+static void stroke_round_grad_n(GpGraphics *g, float x, float y, float w,
+                                float h, float radius, float width,
+                                ARGB from, ARGB to, float n)
+{
+    GpPath *path;
+    GpLineGradient *brush;
+    GpPen *pen = NULL;
+
+    if (w <= 0.5f || h <= 0.5f || width <= 0.0f)
+        return;
+    path = round_path_n(x, y, w, h, radius, n);
+    if (!path)
+        return;
+    brush = gradient_brush(x, y, w, h, from, to);
+    if (brush && GdipCreatePen2((GpBrush *)brush, width, UnitPixel, &pen) == Ok)
+    {
+        GdipDrawPath(g, pen, path);
+        GdipDeletePen(pen);
+    }
+    if (brush)
+        GdipDeleteBrush((GpBrush *)brush);
+    GdipDeletePath(path);
+}
+
+static void fill_ellipse_grad(GpGraphics *g, float x, float y, float w,
+                              float h, ARGB from, ARGB to)
+{
+    GpLineGradient *brush = gradient_brush(x, y, w, h, from, to);
+    if (brush)
+    {
+        GdipFillEllipse(g, (GpBrush *)brush, x, y, w, h);
+        GdipDeleteBrush((GpBrush *)brush);
+    }
+}
+
 /* Superellipse outline, same curve as the card corners. */
-/* n = 2 is a true ellipse (a capsule when radius == h/2); n = 3 is the
- * superellipse the panels and pills use.  Switches must be n = 2: their knob
- * is a real circle, and a n = 3 track around it reads as "square outside,
- * round inside". */
+/* n = 2 is a true ellipse (a capsule when radius == h/2); n = 3.5 is the
+ * squircle used by panels and cards.  Small radii need more angular samples
+ * than large ones to keep chord error below a pixel, so the count is adaptive
+ * rather than fixed.  Switches stay n = 2 because their knob is a true circle. */
+#define SQUIRCLE_N RG_SQUIRCLE_N
+
 static GpPath *round_path_n(float x, float y, float w, float h, float radius,
                             float n)
 {
-    const int steps = 10;
+    int steps = (int)ceilf(radius * 1.75f);
     static const float start[4] = { 180.0f, 270.0f, 0.0f, 90.0f };
     float cx[4], cy[4];
     GpPath *path = NULL;
-    GpPointF pts[4 * (steps + 1)];
+    GpPointF pts[4 * 65];
     int np = 0, c, i;
 
     if (radius * 2.0f > w) radius = w * 0.5f;
     if (radius * 2.0f > h) radius = h * 0.5f;
     if (radius < 0.0f) radius = 0.0f;
     if (n < 2.0f) n = 2.0f;
+    if (steps < 16) steps = 16;
+    if (steps > 64) steps = 64;
 
     cx[0] = x + radius;     cy[0] = y + radius;
     cx[1] = x + w - radius; cy[1] = y + radius;
@@ -412,8 +627,9 @@ static GpPath *round_path_n(float x, float y, float w, float h, float radius,
         return NULL;
 
     GdipStartPathFigure(path);
-    for (i = 1; i < np; i++)
-        GdipAddPathLine(path, pts[i - 1].X, pts[i - 1].Y, pts[i].X, pts[i].Y);
+    /* Line2 emits the whole dense contour in one call; the previous per-edge
+     * AddPathLine loop added hundreds of path operations to every repaint. */
+    GdipAddPathLine2(path, pts, np);
     GdipClosePathFigure(path);
     return path;
 }
@@ -440,13 +656,13 @@ static void fill_round_n(GpGraphics *g, float x, float y, float w, float h,
 
 static GpPath *round_path(float x, float y, float w, float h, float radius)
 {
-    return round_path_n(x, y, w, h, radius, 3.0f);
+    return round_path_n(x, y, w, h, radius, SQUIRCLE_N);
 }
 
 static void fill_round(GpGraphics *g, float x, float y, float w, float h,
                        float radius, ARGB color)
 {
-    fill_round_n(g, x, y, w, h, radius, color, 3.0f);
+    fill_round_n(g, x, y, w, h, radius, color, SQUIRCLE_N);
 }
 
 /* Width of a string as draw_text() will lay it out, for centring an icon and
@@ -473,6 +689,8 @@ static void draw_text(GpGraphics *g, const wchar_t *s, GpFont *font,
 {
     GpSolidFill *br = NULL;
     GpRectF rect;
+    GpRectF bound;
+    float bh = h;
 
     if (!s || !*s || !font || ((color >> 24) & 0xFF) == 0)
         return;
@@ -481,6 +699,18 @@ static void draw_text(GpGraphics *g, const wchar_t *s, GpFont *font,
     rect.Y = y;
     rect.Width = w;
     rect.Height = h;
+
+    /* GDI+ centres the whole LINE BOX, leading included; with CJK fonts the
+     * glyphs then hang one or two pixels above the visual centre of their
+     * row / thumb.  Measure the real text height and centre THAT instead, so
+     * labels sit dead-centre no matter which family (MiSans, YaHei...) is
+     * active or what metrics it ships. */
+    if (GdipMeasureString(g, s, -1, font, &rect, fmt ? fmt : g_fmt_l,
+                          &bound, NULL, NULL) == Ok && bound.Height > 0.5f)
+        bh = bound.Height;
+
+    rect.Y = y + (h - bh) * 0.5f;
+    rect.Height = bh;
 
     if (GdipCreateSolidFill(color, &br) != Ok)
         return;
@@ -496,24 +726,20 @@ static void draw_switch(GpGraphics *g, float x, float y, float w, float h,
      * soft shadow under the knob and used the muted text accent, which read as
      * a pale grey-green pill instead of a switch that is clearly on. */
     float r = h * 0.5f;
-    float inset = h * 0.081f;          /* 2.5 px on a 31 px track */
+    /* The knob is inset by half a U3; its radius is the track radius minus
+     * that same inset, i.e. concentric with the track's corner arc. */
+    float inset = fminf(h * 0.14f, (float)U3 * 0.5f);
     float kr = r - inset;
     float kx = x + r + (w - h) * t;
     float ky = y + r;
     GpSolidFill *fill = NULL;
 
     {
-        int on_a = (th->switch_on >> 24) & 0xFF;
-        int off_a = (th->switch_off >> 24) & 0xFF;
-        int a = (int)rg_lerp((float)off_a, (float)on_a, t);
-        int rr = (int)rg_lerp((float)((th->switch_off >> 16) & 0xFF),
-                              (float)((th->switch_on >> 16) & 0xFF), t);
-        int gg = (int)rg_lerp((float)((th->switch_off >> 8) & 0xFF),
-                              (float)((th->switch_on >> 8) & 0xFF), t);
-        int bb = (int)rg_lerp((float)(th->switch_off & 0xFF),
-                              (float)(th->switch_on & 0xFF), t);
-
-        fill_round_n(g, x, y, w, h, r, rgba(a, rr, gg, bb), 2.0f);
+        fill_round_n(g, x, y, w, h, r, fade(th->switch_off, alpha), 2.0f);
+        if (t > 0.004f)
+            fill_round_grad_n(g, x, y, w, h, r,
+                              fade(th->accent, alpha * t),
+                              fade(th->accent_alt, alpha * t), 2.0f);
     }
 
     if (GdipCreateSolidFill(fade(0xFFFFFFFF, alpha), &fill) == Ok)
@@ -526,8 +752,8 @@ static void draw_switch(GpGraphics *g, float x, float y, float w, float h,
 
 static void slider_bounds(float *x0, float *x1)
 {
-    *x0 = (float)(MARGIN + PAD + sc(10, 7) + ICON_SZ + sc(12, 8));
-    *x1 = (float)(MARGIN + PANEL_W - PAD - sc(4, 2));
+    *x0 = (float)(MARGIN + PAD + U1 + ICON_SZ + U1);
+    *x1 = (float)(MARGIN + PANEL_W - PAD - U3);
 }
 
 static void slider_readout(const Row *r, wchar_t *out, size_t cap)
@@ -559,8 +785,15 @@ static void draw_slider(GpGraphics *g, const Row *r, const RECT *rect,
     fill_round_n(g, x0, cy - th_h * 0.5f, x1 - x0, th_h, th_h * 0.5f,
                  fade(th->track, alpha), 2.0f);
     if (kx - x0 > 1.0f)
-        fill_round_n(g, x0, cy - th_h * 0.5f, kx - x0, th_h, th_h * 0.5f,
-                     fade(r->enabled ? th->accent : th->track, alpha), 2.0f);
+    {
+        if (r->enabled)
+            fill_round_grad_n(g, x0, cy - th_h * 0.5f, kx - x0, th_h,
+                              th_h * 0.5f, fade(th->accent, alpha),
+                              fade(th->accent_alt, alpha), 2.0f);
+        else
+            fill_round_n(g, x0, cy - th_h * 0.5f, kx - x0, th_h, th_h * 0.5f,
+                         fade(th->track, alpha), 2.0f);
+    }
 
     {
         GpSolidFill *sh = NULL;
@@ -580,22 +813,28 @@ static void draw_slider(GpGraphics *g, const Row *r, const RECT *rect,
         }
     }
     {
+        float d = kr * 2.0f;
+        ARGB from = fade(th->accent, alpha);
+        ARGB to = fade(th->accent_alt, alpha);
+        GpLineGradient *brush = gradient_brush(kx - kr, cy - kr, d, d, from, to);
         GpPen *pen = NULL;
-        if (GdipCreatePen1(fade(th->accent, alpha), (REAL)scf(2.0f, 1.4f),
-                           UnitPixel, &pen) == Ok)
+        if (brush && GdipCreatePen2((GpBrush *)brush, (REAL)scf(2.0f, 1.4f),
+                                    UnitPixel, &pen) == Ok)
         {
-            GdipDrawEllipse(g, pen, kx - kr, cy - kr, kr * 2.0f, kr * 2.0f);
+            GdipDrawEllipse(g, pen, kx - kr, cy - kr, d, d);
             GdipDeletePen(pen);
         }
+        if (brush)
+            GdipDeleteBrush((GpBrush *)brush);
     }
 
     {
         float line_y = (float)rect->top + (float)sc(5, 3);
         float line_h = (float)sc(24, 17);
-        float tx = (float)(rect->left + sc(10, 7)) + (float)ICON_SZ +
-                   (float)sc(12, 8);
+        float tx = (float)(rect->left + U1) + (float)ICON_SZ +
+                   (float)U1;
 
-        icon_draw(g, r->icon, (float)(rect->left + sc(10, 7)) + ICON_SZ * 0.5f,
+        icon_draw(g, r->icon, (float)(rect->left + U1) + ICON_SZ * 0.5f,
                   line_y + line_h * 0.5f, (float)ICON_SZ, fade(th->accent, alpha),
                   scf(1.9f, 1.3f));
 
@@ -605,7 +844,7 @@ static void draw_slider(GpGraphics *g, const Row *r, const RECT *rect,
 
         slider_readout(r, readout, RG_COUNT(readout));
         draw_text(g, readout, g_font_small, (float)rect->left, line_y,
-                  (float)(rect->right - rect->left) - (float)sc(12, 8),
+                  (float)(rect->right - rect->left) - (float)U1,
                   line_h, fade(th->dim, alpha), g_fmt_r);
     }
 }
@@ -613,18 +852,18 @@ static void draw_slider(GpGraphics *g, const Row *r, const RECT *rect,
 static void draw_segment(GpGraphics *g, const Row *r, int idx, const RECT *rect,
                          const RgTheme *th, float alpha)
 {
-    float line_y = (float)rect->top + (float)sc(4, 3);
+    float line_y = (float)rect->top + (float)sc(6, 4);
     float line_h = (float)sc(22, 15);
-    float tx = (float)(rect->left + sc(10, 7)) + (float)ICON_SZ + (float)sc(12, 8);
-    float tr_x = (float)(rect->left + sc(10, 7));
-    float tr_w = (float)(rect->right - rect->left) - (float)sc(20, 14);
+    float tx = (float)(rect->left + U1) + (float)ICON_SZ + (float)U1;
+    float tr_x = (float)(rect->left + U1);
+    float tr_w = (float)(rect->right - rect->left) - (float)(2 * U1);
     float tr_h = (float)sc(30, 21);
-    float tr_y = (float)rect->bottom - (float)sc(8, 5) - tr_h;
+    float tr_y = (float)rect->bottom - (float)U2 - tr_h;
     float seg_w = tr_w / (float)r->nseg;
     float thumb = g_seg_anim[idx].v;
     int i;
 
-    icon_draw(g, r->icon, (float)(rect->left + sc(10, 7)) + ICON_SZ * 0.5f,
+    icon_draw(g, r->icon, (float)(rect->left + U1) + ICON_SZ * 0.5f,
               line_y + line_h * 0.5f, (float)ICON_SZ, fade(th->dim, alpha),
               scf(1.9f, 1.3f));
 
@@ -632,26 +871,140 @@ static void draw_segment(GpGraphics *g, const Row *r, int idx, const RECT *rect,
               (float)(rect->right - rect->left) - (tx - (float)rect->left),
               line_h, fade(th->text, alpha), g_fmt_l);
 
-    fill_round(g, tr_x, tr_y, tr_w, tr_h, tr_h * 0.5f,
-               fade(menu_dark() ? rgba(30, 255, 255, 255) : rgba(18, 0, 0, 0), alpha));
-
-    fill_round(g, tr_x + seg_w * thumb + scf(2.0f, 1.5f), tr_y + scf(2.0f, 1.5f),
-               seg_w - scf(4.0f, 3.0f), tr_h - scf(4.0f, 3.0f),
-               (tr_h - scf(4.0f, 3.0f)) * 0.5f, fade(th->accent, alpha));
-
-    for (i = 0; i < r->nseg; i++)
+    if (r->swatches)
     {
-        float cx = tr_x + seg_w * (float)i;
-        int sel = (i == r->seg_cur);
-        /* Label brightens as the thumb arrives under it. */
-        float k = 1.0f - rg_clampf(fabsf(thumb - (float)i), 0.0f, 1.0f);
-        ARGB col = menu_dark()
-                 ? rgba((int)(150 + 105 * k), 246, 247, 250)
-                 : rgba((int)(130 + 125 * k), 26, 27, 31);
-        if (sel && k > 0.9f)
-            col = menu_dark() ? rgba(255, 20, 24, 32) : rgba(255, 255, 255, 255);
-        draw_text(g, r->seg[i], g_font_small, cx, tr_y, seg_w, tr_h,
-                  fade(col, alpha), g_fmt_c);
+        float d = fminf((float)sc(24, 17), tr_h - scf(2.0f, 1.0f));
+        float cy = tr_y + tr_h * 0.5f;
+
+        /* The selected name is shown once.  While the pointer explores the
+         * row, preview that colour's name in place; the selected ring still
+         * makes the applied value unambiguous. */
+        {
+            int label_i = (g_seg_hover >= 0 && g_seg_hover < r->nseg)
+                        ? g_seg_hover : r->seg_cur;
+            draw_text(g, r->seg[label_i], g_font_small, (float)rect->left,
+                      line_y, (float)(rect->right - rect->left) - (float)U1,
+                      line_h, fade(g_seg_hover >= 0 ? th->text : th->dim, alpha),
+                      g_fmt_r);
+        }
+
+        for (i = 0; i < r->nseg; i++)
+        {
+            ARGB from = 0, to = 0, txt = 0;
+            float cx = tr_x + seg_w * ((float)i + 0.5f);
+            int hot = (i == g_seg_hover);
+            float active = 1.0f - rg_clampf(fabsf(thumb - (float)i), 0.0f, 1.0f);
+            float scale = 0.80f + 0.20f * fmaxf(active, hot ? 0.56f : 0.0f);
+            float sd = d * scale;
+            float sx = cx - sd * 0.5f;
+            float sy = cy - sd * 0.5f;
+
+            render_accent_palette(menu_dark(), i, &from, &to, &txt);
+            if (active > 0.01f)
+            {
+                fill_ellipse_grad(g, cx - d * 0.72f, cy - d * 0.72f,
+                                  d * 1.44f, d * 1.44f,
+                                  fade(from, alpha * 0.22f * active),
+                                  fade(to, alpha * 0.20f * active));
+                stroke_round_grad_n(g, cx - d * 0.64f, cy - d * 0.64f,
+                                    d * 1.28f, d * 1.28f, d * 0.64f,
+                                    scf(2.0f, 1.4f),
+                                    fade(from, alpha * active),
+                                    fade(to, alpha * active), 2.0f);
+            }
+            else if (hot)
+            {
+                stroke_round_grad_n(g, sx - scf(3.0f, 2.0f),
+                                    sy - scf(3.0f, 2.0f),
+                                    sd + scf(6.0f, 4.0f),
+                                    sd + scf(6.0f, 4.0f),
+                                    (sd + scf(6.0f, 4.0f)) * 0.5f,
+                                    scf(1.2f, 0.9f),
+                                    fade(from, alpha * 0.58f),
+                                    fade(to, alpha * 0.58f), 2.0f);
+            }
+
+            fill_ellipse_grad(g, sx, sy, sd, sd,
+                              fade(from, alpha), fade(to, alpha));
+            fill_ellipse_grad(g, sx + sd * 0.20f, sy + sd * 0.15f,
+                              sd * 0.30f, sd * 0.22f,
+                              rgba((int)(86 * alpha), 255, 255, 255),
+                              rgba(0, 255, 255, 255));
+        }
+    }
+    else
+    {
+        /* Track = level 1 radius (concentric with the panel, which is inset
+         * by exactly U0).  Thumb = inset a fixed 2 px -> radius drops by the
+         * same 2 px, so the arcs stay concentric.  The old thumb was inset by
+         * U3 (~6 px at R = 44), which ate a third of the track height and
+         * made every picker read as a cramped strip - the exact "精凑" from
+         * the 4.9.0 screenshot.  A 2 px inset gives the Apple-sized pill. */
+        float tins = scf(2.0f, 1.5f);
+        float trr  = fmaxf((float)ROW_R - tins,
+                           (tr_h - 2.0f * tins) * 0.5f - 1.0f);
+
+        fill_round(g, tr_x, tr_y, tr_w, tr_h, (float)ROW_R,
+                   fade(menu_dark() ? rgba(38, 255, 255, 255)
+                                    : rgba(26, 0, 0, 0), alpha));
+
+        /* Selected segment = a lifted, frosted NEUTRAL material.  A fully
+         * saturated accent gradient here read as a plastic blue button glued
+         * onto glass.  Apple's segmented control lifts a neutral surface and
+         * lets colour live in a hairline / a whisper of tint, not the fill. */
+        {
+            float tx = tr_x + seg_w * thumb + tins;
+            float ty = tr_y + tins;
+            float tw = seg_w - 2.0f * tins;
+            float thh = tr_h - 2.0f * tins;
+            ARGB hi, lo, edge, tint, shade;
+
+            if (menu_dark())
+            {
+                hi    = rgba((int)(255 * alpha * 0.27f), 240, 244, 252);
+                lo    = rgba((int)(255 * alpha * 0.18f), 210, 218, 236);
+                edge  = rgba((int)(255 * alpha * 0.34f), 255, 255, 255);
+                shade = rgba((int)(255 * alpha * 0.22f), 0, 0, 0);
+                tint  = fade(th->accent_soft, alpha * 0.70f);
+            }
+            else
+            {
+                hi    = rgba((int)(255 * alpha * 0.96f), 255, 255, 255);
+                lo    = rgba((int)(255 * alpha * 0.86f), 236, 239, 246);
+                edge  = rgba((int)(255 * alpha * 0.22f), 90, 100, 120);
+                shade = rgba((int)(255 * alpha * 0.13f), 0, 0, 0);
+                tint  = fade(th->accent_soft, alpha * 0.45f);
+            }
+
+            /* one-pixel lift, then a whisper of the chosen accent */
+            fill_round_n(g, tx, ty + scf(1.5f, 1.0f), tw, thh,
+                         trr, shade, SQUIRCLE_N);
+            fill_round_n(g, tx, ty, tw, thh, trr, tint, SQUIRCLE_N);
+            fill_round_grad_n(g, tx, ty, tw, thh, trr, hi, lo, SQUIRCLE_N);
+            stroke_round_grad_n(g, tx + 0.5f, ty + 0.5f,
+                                tw - 1.0f, thh - 1.0f,
+                                trr - 0.5f, scf(1.0f, 0.8f),
+                                edge, edge, SQUIRCLE_N);
+        }
+
+        for (i = 0; i < r->nseg; i++)
+        {
+            float cx = tr_x + seg_w * (float)i;
+            int sel = (i == r->seg_cur);
+            /* Label brightens as the thumb arrives under it; a hovered label
+             * brightens part-way so the pointer always has a visible target. */
+            float k = 1.0f - rg_clampf(fabsf(thumb - (float)i), 0.0f, 1.0f);
+            if (i == g_seg_hover)
+                k = fmaxf(k, 0.60f);
+            ARGB col = menu_dark()
+                     ? rgba((int)(176 + 79 * k), 246, 247, 250)
+                     : rgba((int)(158 + 97 * k), 26, 27, 31);
+            if (sel && k > 0.9f)
+                col = menu_dark() ? rgba(255, 250, 251, 253)
+                                  : rgba(255, 26, 27, 31);
+            draw_text(g, r->seg[i], g_font_small, cx, tr_y, seg_w, tr_h,
+                      fade(col, alpha), g_fmt_c);
+        }
     }
 }
 
@@ -660,9 +1013,9 @@ static void confirm_buttons(const RECT *rc, RECT *cancel, RECT *ok)
 {
     float bw = (float)sc(66, 46);
     float bh = (float)sc(28, 20);
-    float gap = (float)sc(8, 5);
-    float by = (float)rc->bottom - (float)sc(8, 5) - bh;
-    float bx1 = (float)rc->right - (float)sc(10, 7) - bw;
+    float gap = (float)U2;
+    float by = (float)rc->bottom - (float)U2 - bh;
+    float bx1 = (float)rc->right - (float)U1 - bw;
     float bx0 = bx1 - bw - gap;
 
     if (cancel)
@@ -685,13 +1038,13 @@ static void draw_confirm(GpGraphics *g, int idx, const RECT *rect,
                          const RgTheme *th, float alpha)
 {
     float t = confirm_open();
-    float pad_x = (float)sc(12, 8);
+    float pad_x = (float)U1;
     float gy = (float)sc(3, 2);     /* air above and below the plate */
     float line_y = (float)rect->top + gy + (float)sc(7, 5);
     float line_h = (float)sc(22, 15);
     float icon_x = (float)rect->left + pad_x;
-    float tx = icon_x + (float)ICON_SZ + (float)sc(12, 8);
-    float text_w = (float)rect->right - (float)sc(12, 8) - tx;
+    float tx = icon_x + (float)ICON_SZ + (float)U1;
+    float text_w = (float)rect->right - (float)U1 - tx;
     wchar_t hint[160];
     wchar_t sz[64];
 
@@ -703,7 +1056,7 @@ static void draw_confirm(GpGraphics *g, int idx, const RECT *rect,
     fill_round(g, (float)rect->left, (float)rect->top + gy,
                (float)(rect->right - rect->left),
                (float)(rect->bottom - rect->top) - gy * 2.0f,
-               (float)ROW_R + scf(4.0f, 2.5f),
+               (float)ROW_R,
                fade(menu_dark() ? rgba(26, 255, 255, 255)
                                 : rgba(22, 0, 0, 0), alpha * t));
 
@@ -714,7 +1067,7 @@ static void draw_confirm(GpGraphics *g, int idx, const RECT *rect,
          * the group is centred in the space above the buttons - left-aligning
          * it left a hole on the right of the plate. */
         RECT ca, ok;
-        float gap = (float)sc(12, 8);
+        float gap = (float)U1;
         float tw = text_width(g, hint, g_font);
         float group = (float)ICON_SZ + gap + tw;
         float top = (float)rect->top + gy;
@@ -777,14 +1130,20 @@ static void draw_confirm(GpGraphics *g, int idx, const RECT *rect,
         draw_text(g, T(S_CONFIRM_CANCEL), g_font_small, (float)ca.left,
                   (float)ca.top, bw, bh, fade(th->text, alpha * t), g_fmt_c);
 
-        /* The destructive button is the only saturated thing in the panel, so
-         * it pulls the eye without needing a second colour. */
-        fill_round(g, (float)ok.left, (float)ok.top, bw, bh, bh * 0.5f,
-                   fade(th->accent, alpha * t));
-        draw_text(g, T(S_BTN_EMPTY), g_font_small, (float)ok.left,
+        /* Permanent deletion uses a danger colour and an explicit verb, so the
+         * action cannot be mistaken for a reversible "tidy up". */
+        {
+            ARGB d0 = menu_dark() ? rgba(255, 255, 126, 112)
+                                  : rgba(255, 240, 110, 92);
+            ARGB d1 = menu_dark() ? rgba(255, 198, 50, 52)
+                                  : rgba(233, 209, 39, 48);
+            fill_round_grad_n(g, (float)ok.left, (float)ok.top, bw, bh,
+                              bh * 0.5f, fade(d0, alpha * t),
+                              fade(d1, alpha * t), SQUIRCLE_N);
+        }
+        draw_text(g, T(S_CONFIRM_ACTION), g_font_small, (float)ok.left,
                   (float)ok.top, bw, bh,
-                  fade(menu_dark() ? rgba(255, 22, 30, 40) : rgba(255, 255, 255, 255),
-                       alpha * t), g_fmt_c);
+                  fade(rgba(255, 255, 255, 255), alpha * t), g_fmt_c);
     }
 
     (void)idx;
@@ -792,11 +1151,17 @@ static void draw_confirm(GpGraphics *g, int idx, const RECT *rect,
 
 static void ensure_backdrop(void)
 {
-    int bx = g_win_x + MARGIN;
-    int by = g_win_y + MARGIN;
-    int bw = PANEL_W;
-    int bh = rows_height();
-    int q = (int)lroundf(g_host->cfg->blur_radius);
+    int rp = render_refract_pad();
+    int bx = g_win_x + MARGIN - rp;
+    int by = g_win_y + MARGIN - rp;
+    int bw = PANEL_W + rp * 2;
+    int bh = rows_height() + rp * 2;
+    /* A menu is READ, so its frosted material always diffuses the desktop a
+     * little even at blur = 0.  The old punch used to hide sharp window text
+     * by flattening the capture; with a clean capture we get the real desktop
+     * back and must supply that diffusion honestly. */
+    float br = g_host->cfg->blur_radius + 12.0f;
+    int q = (int)lroundf(g_host->cfg->blur_radius * 10.0f);
     /* Capture taller than the panel needs: the "empty the bin?" prompt grows
      * the panel while it animates, and re-grabbing the screen every frame of
      * that animation is exactly the hitch it looks like. */
@@ -817,6 +1182,8 @@ static void ensure_backdrop(void)
             g_bd_raw_q = -1;
             if (glass_capture(bx, by, bw, cap_h, &g_bd_raw))
             {
+                /* glass_capture() excludes our own layered windows from the
+                 * grab, so no reconstruction / punching is needed. */
                 g_bd_raw_x = bx;
                 g_bd_raw_y = by;
             }
@@ -825,7 +1192,7 @@ static void ensure_backdrop(void)
         if (g_bd_raw.px && g_bd_raw_q != q)
         {
             glass_release(&g_bd_blur);
-            if (glass_blurred_copy(&g_bd_raw, (float)q, &g_bd_blur))
+            if (glass_blur_half(&g_bd_raw, br, &g_bd_blur))
                 g_bd_raw_q = q;
         }
 
@@ -905,12 +1272,69 @@ static void render_menu(void)
 
     ensure_backdrop();
 
-    memset(g_surf.bits, 0, (size_t)W * H * 4);
+    {
+        PanelKey k;
+        BYTE *nb;
+        BOOL rebuild;
 
-    render_glass_panel(&g_surf, g_bd_valid ? &g_bd : NULL,
-                       MARGIN, MARGIN, pw, ph, RADIUS,
-                       g_host->cfg->opacity, g_host->cfg->material,
-                       menu_dark());
+        memset(&k, 0, sizeof(k));
+        k.w = W;  k.h = H;
+        k.radius = RADIUS;
+        k.dark = menu_dark() ? 1 : 0;
+        k.style = glass_index();
+        k.accent = accent_index();
+        k.op = (int)(g_host->cfg->opacity * 1000.0f);
+        k.mat = (int)(g_host->cfg->material * 1000.0f);
+        k.refr = (int)(g_host->cfg->refraction * 1000.0f);
+        k.bd_valid = g_bd_valid;
+        k.bdw = g_bd.w;  k.bdh = g_bd.h;
+        k.bdx = g_bd_x;  k.bdy = g_bd_y;
+        k.bdq = g_bd_q;
+
+        rebuild = !g_panel_valid || g_panel_w != W || g_panel_h != H ||
+                  memcmp(&k, &g_panel_key, sizeof(k)) != 0;
+
+        if (rebuild)
+        {
+            nb = (BYTE *)realloc(g_panel_cache, (size_t)W * H * 4);
+            if (!nb)
+            {
+                g_panel_valid = FALSE;
+                return;
+            }
+
+            memset(g_surf.bits, 0, (size_t)W * H * 4);
+
+            /* The card is allowed to disappear into the wallpaper; a menu is
+             * read, not just glanced at.  Its backdrop is baked into the
+             * surface at ~96% coverage: at 62% the sharp window behind it
+             * leaked straight through and the frosted blur was invisible -
+             * the exact "模糊不对" from the user's screenshot.  Coverage is
+             * pinned at 100%: even a 4% leak of the sharp window behind was
+             * enough to read its text on a light panel.  The opacity slider
+             * still controls tint density; only the leak is closed. */
+            render_glass_panel(&g_surf, g_bd_valid ? &g_bd : NULL,
+                               MARGIN, MARGIN, pw, ph, RADIUS,
+                               rg_clampf(0.45f + g_host->cfg->opacity * 0.55f,
+                                         0.62f, 1.0f),
+                               rg_clampf(g_host->cfg->material + 0.20f,
+                                         0.0f, 1.0f),
+                               menu_dark(), glass_index(), accent_index(),
+                               g_host->cfg->refraction,
+                               1.0f);
+
+            memcpy(nb, g_surf.bits, (size_t)W * H * 4);
+            g_panel_cache = nb;
+            g_panel_w = W;
+            g_panel_h = H;
+            g_panel_key = k;
+            g_panel_valid = TRUE;
+        }
+        else if (g_panel_cache)
+        {
+            memcpy(g_surf.bits, g_panel_cache, (size_t)W * H * 4);
+        }
+    }
 
     /* The theme row carries a sun/moon icon, and the theme can change while the
      * menu is open.  Sync it here rather than at build_rows() time, otherwise
@@ -934,7 +1358,7 @@ static void render_menu(void)
         }
     }
 
-    render_theme(menu_dark(), &th);
+    render_theme(menu_dark(), accent_index(), &th);
 
     if (GdipCreateBitmapFromScan0(W, H, W * 4, PixelFormat32bppPARGB,
                                   g_surf.bits, &bmp) != Ok)
@@ -977,8 +1401,8 @@ static void render_menu(void)
             if (GdipCreatePen1(fade(th.border, alpha), 1.0f, UnitPixel, &pen) == Ok)
             {
                 float ly = (float)y + (float)rh * 0.5f;
-                GdipDrawLine(g, pen, (float)(MARGIN + PAD + sc(8, 5)) + (float)dx, ly,
-                             (float)(MARGIN + pw - PAD - sc(8, 5)) + (float)dx, ly);
+                GdipDrawLine(g, pen, (float)(MARGIN + PAD + U2) + (float)dx, ly,
+                             (float)(MARGIN + pw - PAD - U2) + (float)dx, ly);
                 GdipDeletePen(pen);
             }
             y += rh;
@@ -991,9 +1415,19 @@ static void render_menu(void)
         {
             float hv = g_hover_anim[i].v;
             if (hv > 0.004f)
+            {
+                float bw = scf(2.2f, 1.5f);
+                float bh = fminf((float)rh - scf(12.0f, 8.0f), scf(26.0f, 18.0f));
                 fill_round(g, (float)rc.left, (float)rc.top,
                            (float)(rc.right - rc.left), (float)rh,
                            (float)ROW_R, fade(th.hover_bg, alpha * hv));
+                if (r->enabled)
+                    fill_round_grad_n(g, (float)rc.left + scf(1.5f, 1.0f),
+                                      (float)rc.top + ((float)rh - bh) * 0.5f,
+                                      bw, bh, bw * 0.5f,
+                                      fade(th.accent, alpha * hv),
+                                      fade(th.accent_alt, alpha * hv), 2.0f);
+            }
         }
 
         if (r->kind == ROW_GAP)
@@ -1027,8 +1461,8 @@ static void render_menu(void)
                                                 : rgba(110, 150, 152, 162));
             ARGB ic = r->enabled ? th.dim : rgba(80, 150, 152, 162);
             float iy = (float)rc.top + ((float)rh - (float)ICON_SZ) * 0.5f;
-            float ix = (float)rc.left + (float)sc(10, 7);
-            float tx = ix + (float)ICON_SZ + (float)sc(12, 8);
+            float ix = (float)rc.left + (float)U1;
+            float tx = ix + (float)ICON_SZ + (float)U1;
 
             if (r->kind == ROW_BACK)
             {
@@ -1052,14 +1486,14 @@ static void render_menu(void)
             {
                 float shh = (float)sc(25, 18);
                 float sw = shh * 1.68f;
-                draw_switch(g, (float)rc.right - (float)sc(10, 7) - sw,
+                draw_switch(g, (float)rc.right - (float)U1 - sw,
                             (float)rc.top + ((float)rh - shh) * 0.5f,
                             sw, shh, g_sw_anim[i].v, &th, alpha);
             }
             else if (r->kind == ROW_PAGE)
             {
                 float cs = (float)sc(14, 10);
-                float cx = (float)rc.right - (float)sc(10, 7) - cs * 0.5f;
+                float cx = (float)rc.right - (float)U1 - cs * 0.5f;
                 icon_draw(g, IC_CHEVRON_RIGHT, cx, (float)rc.top + (float)rh * 0.5f,
                           cs, fade(th.dim, alpha), scf(1.9f, 1.3f));
             }
@@ -1123,7 +1557,8 @@ static void slider_from_x(int idx, int x)
     t = rg_clampf(t, 0.0f, 1.0f);
 
     v = r->vmin + (r->vmax - r->vmin) * t;
-    v = r->percent ? floorf(v * 100.0f + 0.5f) / 100.0f : floorf(v + 0.5f);
+    /* Stepless: no floor() quantisation.  The readout still rounds for
+     * display, but both the value and the knob follow the pointer exactly. */
     v = rg_clampf(v, r->vmin, r->vmax);
 
     if (fabsf(v - r->v) < 1e-4f)
@@ -1142,8 +1577,8 @@ static int hit_segment(int idx, int x)
 {
     const Row *r = &g_rows[idx];
     const RECT *rc = &g_rowrect[idx];
-    float tr_x = (float)(rc->left + sc(10, 7));
-    float tr_w = (float)(rc->right - rc->left) - (float)sc(20, 14);
+    float tr_x = (float)(rc->left + U1);
+    float tr_w = (float)(rc->right - rc->left) - (float)(2 * U1);
     float seg_w = tr_w / (float)r->nseg;
     int i;
 
@@ -1208,12 +1643,13 @@ static void activate(int idx)
         goto repage;
 
     case ROW_BACK:
-        g_page = 0;
+        g_page = r->id;
         g_page_dir = -1;
     repage:
         g_confirm_row = -1;
         g_confirm_anim.v = 0.0f;
         g_hover = -1;
+        g_seg_hover = -1;
         build_rows();
         g_page_anim.v = 0.0f;
         anim_to(&g_page_anim, 1.0f, 190);
@@ -1241,16 +1677,61 @@ static void activate_segment(int idx, int seg)
     start_anim_timer();
 }
 
+/* Diagnostic: write the current panel surface to %TEMP%\rg_menu_frame.bgra
+ * (int32 width, int32 height, then premultiplied BGRA rows).  The menu is
+ * WDA_EXCLUDEFROMCAPTURE, so a screen grab cannot show it - this lets the
+ * corner mask be verified directly instead. */
+static void menu_dump_raw(void)
+{
+    wchar_t path[MAX_PATH];
+    FILE *f;
+    int hdr[2];
+
+    GetTempPathW(MAX_PATH, path);
+    wcscat_s(path, MAX_PATH, L"rg_menu_frame.bgra");
+    f = _wfopen(path, L"wb");
+    if (!f)
+        return;
+    hdr[0] = g_surf.w;
+    hdr[1] = g_surf.h;
+    fwrite(hdr, sizeof(hdr[0]), 2, f);
+    if (g_surf.bits && g_surf.w > 0 && g_surf.h > 0)
+        fwrite(g_surf.bits, 4, (size_t)g_surf.w * g_surf.h, f);
+    fclose(f);
+}
+
 static LRESULT CALLBACK menu_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg)
     {
+    case WM_APP + 9:   /* RG_WM_DUMP */
+        menu_dump_raw();
+        return 0;
+
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
+
+    case WM_SETCURSOR:
+        if (LOWORD(lp) == HTCLIENT)
+        {
+            POINT pt;
+            int idx;
+            GetCursorPos(&pt);
+            ScreenToClient(hwnd, &pt);
+            idx = hit_row(pt.x, pt.y);
+            if (idx >= 0 && g_rows[idx].kind != ROW_SEP &&
+                g_rows[idx].kind != ROW_GAP)
+            {
+                SetCursor(LoadCursorW(NULL, IDC_HAND));
+                return TRUE;
+            }
+        }
+        break;
 
     case WM_MOUSEMOVE:
     {
         int idx;
+        int seg = -1;
 
         if (g_drag_slider >= 0)
         {
@@ -1274,6 +1755,13 @@ static LRESULT CALLBACK menu_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
 
         idx = hit_row(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+        if (idx >= 0 && g_rows[idx].kind == ROW_SEGMENT)
+            seg = hit_segment(idx, GET_X_LPARAM(lp));
+        if (seg != g_seg_hover)
+        {
+            g_seg_hover = seg;
+            render_menu();
+        }
 
         {
             int ch = 0;
@@ -1439,6 +1927,8 @@ static LRESULT CALLBACK menu_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                 g_shown = FALSE;
                 KillTimer(hwnd, 2);
                 ShowWindow(hwnd, SW_HIDE);
+                menu_sync_capture();   /* window gone: drop the fallback rect */
+                glass_live_invalidate();  /* card backdrop: fresh desktop now */
                 return 0;
             }
 
@@ -1470,8 +1960,6 @@ static LRESULT CALLBACK menu_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 void menu_init(HINSTANCE inst, MenuHost *host)
 {
     WNDCLASSEXW wc;
-    static const wchar_t *names[] = { L"Microsoft YaHei UI", L"Segoe UI" };
-    int i;
 
     g_host = host;
 
@@ -1482,15 +1970,6 @@ void menu_init(HINSTANCE inst, MenuHost *host)
     wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
     wc.lpszClassName = MENU_CLASS;
     RegisterClassExW(&wc);
-
-    for (i = 0; i < RG_COUNT(names) && !g_family; i++)
-    {
-        GpFontFamily *fam = NULL;
-        if (GdipCreateFontFamilyFromName(names[i], NULL, &fam) == Ok && fam)
-            g_family = fam;
-    }
-    if (!g_family)
-        GdipGetGenericFontFamilySansSerif(&g_family);
 }
 
 static void ensure_fonts(void)
@@ -1500,6 +1979,14 @@ static void ensure_fonts(void)
     if (g_fmt_l) { GdipDeleteStringFormat(g_fmt_l); g_fmt_l = NULL; }
     if (g_fmt_r) { GdipDeleteStringFormat(g_fmt_r); g_fmt_r = NULL; }
     if (g_fmt_c) { GdipDeleteStringFormat(g_fmt_c); g_fmt_c = NULL; }
+
+    /* One family for the whole app: bundled MiSans when present, else the
+     * platform chain (render_app_family never returns NULL - it falls through
+     * to the generic sans-serif). */
+    if (!g_family)
+        g_family = render_app_family();
+    if (!g_family)
+        return;
 
     GdipCreateFont(g_family, (REAL)FS, FontStyleRegular, UnitPixel, &g_font);
     GdipCreateFont(g_family, (REAL)sc(14, 10), FontStyleRegular, UnitPixel,
@@ -1524,6 +2011,33 @@ static void ensure_fonts(void)
                                        StringFormatFlagsNoClip);
 }
 
+/* Capture-visible has to cover BOTH layered windows: hiding only the card
+ * still leaves the menu invisible in screenshots.  With the exclusion off,
+ * every backdrop capture contains both windows, and glass.c punches their
+ * remembered rects out before blurring. */
+void menu_sync_capture(void)
+{
+    DWORD affinity;
+    RECT wr;
+
+    if (!g_hwnd || !g_host)
+        return;
+    affinity = (!g_host->cfg->capture_visible && g_live)
+               ? 0x00000011 /* WDA_EXCLUDEFROMCAPTURE */
+               : 0;         /* WDA_NONE - screenshots include the menu */
+    SetWindowDisplayAffinity(g_hwnd, affinity);
+
+    /* Only punch the menu out of captures when it is actually IN them.
+     * With WDA on, the pixels there are real desktop and punching would
+     * replace them with a mirrored patch for no reason. */
+    if (affinity == 0 && IsWindowVisible(g_hwnd) &&
+        GetWindowRect(g_hwnd, &wr))
+        glass_set_menu_rect(wr.left, wr.top,
+                            wr.right - wr.left, wr.bottom - wr.top);
+    else
+        glass_set_menu_rect(0, 0, 0, 0);
+}
+
 static void ensure_window(void)
 {
     if (g_hwnd)
@@ -1535,9 +2049,10 @@ static void ensure_window(void)
                              0, 0, PANEL_W, 100, NULL, NULL,
                              GetModuleHandleW(NULL), NULL);
 
-    if (g_hwnd && wcscmp(g_host->cfg->blur_mode, L"wallpaper") != 0 &&
-        glass_live_available())
-        g_live = SetWindowDisplayAffinity(g_hwnd, 0x00000011) != 0;
+    glass_set_capture_hwnd(1, g_hwnd);
+    g_live = (g_host && wcscmp(g_host->cfg->blur_mode, L"wallpaper") != 0 &&
+              glass_live_available());
+    menu_sync_capture();
 }
 
 /* Positions, resizes and paints the panel at (x, y), clamped to the monitor. */
@@ -1585,6 +2100,10 @@ static void present(int x, int y)
     SetWindowPos(g_hwnd, HWND_TOPMOST, x, y, w, h,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
+    /* Publish the menu rect BEFORE the first backdrop grab of this frame,
+     * otherwise the panel photographs itself. */
+    menu_sync_capture();
+
     render_menu();
 
     g_shown = TRUE;
@@ -1600,6 +2119,7 @@ void menu_show(int screen_x, int screen_y)
 
     g_page = 0;
     g_hover = -1;
+    g_seg_hover = -1;
     g_drag_slider = -1;
     g_confirm_row = -1;
     g_confirm_hover = 0;
@@ -1726,4 +2246,7 @@ void menu_shutdown(void)
     g_bd_raw_q = -1;
     g_bd_valid = FALSE;
     render_surface_free(&g_surf);
+    free(g_panel_cache);
+    g_panel_cache = NULL;
+    g_panel_valid = FALSE;
 }

@@ -674,6 +674,41 @@ static void live_init(void)
     InitOnceExecuteOnce(&g_once, live_once, NULL, NULL);
 }
 
+/* --- clean self-exclusion for OUR OWN grabs --------------------------------
+ * "Visible in screenshots" deliberately leaves both layered windows in the
+ * DWM desktop surface.  Every screen grab we take for the frosted backdrop
+ * would then contain the widget/menu themselves.  Erasing them afterwards
+ * with a mirrored / low-pass patch is what produced the faint duplicated
+ * icon and text ("拖影") and a menu blur that lingered after the panel closed:
+ * a patch is a reconstruction of the very pixels we were trying to remove.
+ *
+ * Instead, drop WDA_EXCLUDEFROMCAPTURE onto both windows for the few
+ * microseconds of BitBlt only, then restore exactly the affinity the user
+ * asked for.  The windows stay visible on screen and in the user's own
+ * screenshots; our backdrop is the real, untouched desktop.  Measured on
+ * Win10/11: SetWindowDisplayAffinity takes effect immediately, no DwmFlush
+ * and no extra frame of latency. */
+static HWND g_cap_hwnd[2];
+static CRITICAL_SECTION g_cap_lock;
+static INIT_ONCE g_cap_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK cap_once(PINIT_ONCE once, PVOID param, PVOID *ctx)
+{
+    (void)once; (void)param; (void)ctx;
+    InitializeCriticalSection(&g_cap_lock);
+    return TRUE;
+}
+
+void glass_set_capture_hwnd(int which, HWND hwnd)
+{
+    InitOnceExecuteOnce(&g_cap_once, cap_once, NULL, NULL);
+    if (which == 0 || which == 1)
+        g_cap_hwnd[which] = hwnd;
+}
+
+/* Fallback only: if WDA cannot be toggled, the old reconstruction runs. */
+static void punch_capture(BYTE *px, int cw, int ch, int ox, int oy, int smooth);
+
 /* Grabs a screen rectangle at full resolution. */
 static BOOL capture_rect(int x, int y, int w, int h, BYTE **out_px)
 {
@@ -683,18 +718,41 @@ static BOOL capture_rect(int x, int y, int w, int h, BYTE **out_px)
     HGDIOBJ old;
     void *bits = NULL;
     BOOL ok = FALSE;
+    DWORD aff[2] = { 0, 0 };
+    BOOL  have[2] = { FALSE, FALSE };
+    BOOL  clean = TRUE;
+    int i;
 
     if (w <= 0 || h <= 0 || !out_px)
         return FALSE;
 
+    InitOnceExecuteOnce(&g_cap_once, cap_once, NULL, NULL);
+    EnterCriticalSection(&g_cap_lock);
+    for (i = 0; i < 2; i++)
+    {
+        HWND hw = g_cap_hwnd[i];
+        DWORD cur = 0;
+        if (!hw || !IsWindow(hw))
+            continue;
+        if (!GetWindowDisplayAffinity(hw, &cur))
+        {
+            clean = FALSE;
+            continue;
+        }
+        have[i] = TRUE;
+        aff[i] = cur;
+        if (cur != 0x00000011 && !SetWindowDisplayAffinity(hw, 0x00000011))
+            clean = FALSE;
+    }
+
     screen = GetDC(NULL);
     if (!screen)
-        return FALSE;
+        goto done;
     mem = CreateCompatibleDC(screen);
     if (!mem)
     {
         ReleaseDC(NULL, screen);
-        return FALSE;
+        goto done;
     }
 
     memset(&bi, 0, sizeof(bi));
@@ -716,6 +774,9 @@ static BOOL capture_rect(int x, int y, int w, int h, BYTE **out_px)
             if (px)
             {
                 memcpy(px, bits, bytes);
+                /* Only if the OS refused to exclude our own windows. */
+                if (!clean)
+                    punch_capture(px, w, h, x, y, 0);
                 *out_px = px;
                 ok = TRUE;
             }
@@ -726,6 +787,12 @@ static BOOL capture_rect(int x, int y, int w, int h, BYTE **out_px)
 
     DeleteDC(mem);
     ReleaseDC(NULL, screen);
+
+done:
+    for (i = 0; i < 2; i++)
+        if (have[i] && g_cap_hwnd[i])
+            SetWindowDisplayAffinity(g_cap_hwnd[i], aff[i]);
+    LeaveCriticalSection(&g_cap_lock);
     return ok;
 }
 
@@ -797,6 +864,293 @@ static BOOL tile_covers(int x, int y, int w, int h)
     return ok;
 }
 
+/* --- widget self-exclusion for capture-visible mode ---------------------
+ *
+ * With WDA_EXCLUDEFROMCAPTURE the widget never lands in its own backdrop.
+ * Capture-visible mode drops that flag so screenshots can include it, which
+ * means the capture now contains the widget - this punch fills that rectangle
+ * by vertically interpolating the rows directly above and below it.  The blur
+ * that follows hides the interpolation completely. */
+static RECT g_widget_rect;
+static BOOL g_widget_rect_valid;
+static RECT g_menu_rect;
+static BOOL g_menu_rect_valid;
+/* TRUE only when our layered windows are actually present in screen grabs.
+ * With WDA_EXCLUDEFROMCAPTURE on, the pixels under those rects are already
+ * the real desktop and must NOT be replaced. */
+static BOOL g_capture_visible = TRUE;
+
+void glass_set_capture_visible(BOOL on)
+{
+    g_capture_visible = on ? TRUE : FALSE;
+}
+
+void glass_set_widget_rect(int x, int y, int w, int h)
+{
+    g_widget_rect.left = x;
+    g_widget_rect.top = y;
+    g_widget_rect.right = x + w;
+    g_widget_rect.bottom = y + h;
+    g_widget_rect_valid = w > 0 && h > 0;
+}
+
+/* The context menu is capture-visible too, so it also lands in its own and
+ * the card's backdrop grabs.  Remember its rect for the same punch-out. */
+void glass_set_menu_rect(int x, int y, int w, int h)
+{
+    g_menu_rect.left = x;
+    g_menu_rect.top = y;
+    g_menu_rect.right = x + w;
+    g_menu_rect.bottom = y + h;
+    g_menu_rect_valid = w > 0 && h > 0;
+}
+
+static int fold_axis(int v, int lo, int hi)
+{
+    /* Triangle fold of v into [lo, hi]: reflection is C0-continuous at the
+     * seams, so the filled patch never shows a boundary line against the
+     * real pixels around it (the old top/bottom lerp did - it read as a
+     * rectangular ghost with square corners through the glass). */
+    int len = hi - lo + 1;
+    int period, d;
+    if (len <= 1)
+        return lo;
+    period = 2 * (len - 1);
+    d = (v - lo) % period;
+    if (d < 0)
+        d += period;
+    if (d >= len)
+        d = period - d;
+    return lo + d;
+}
+
+/* A mirrored fill is seamless at the seam, but it repeats whatever sat just
+ * outside the window.  At blur_radius = 0 those repeats are readable text and
+ * icons - the menu panel is large enough to show them clearly.  Low-pass only
+ * the filled rectangle: repeats become a smooth colour field, the untouched
+ * desktop around it stays sharp.  Two O(w*h) sliding-window passes. */
+static void smooth_rect(BYTE *px, int cw, int ch,
+                        int x0, int y0, int x1, int y1)
+{
+    /* 20 px is enough to turn a window edge into a gentle gradient and to
+     * dissolve text, even when the user's blur slider sits at zero. */
+    const int R = 20;
+    const int win = 2 * R + 1;
+    int bw = x1 - x0, bh = y1 - y0;
+    BYTE *a, *b;
+    int x, y, c;
+
+    if (bw <= 0 || bh <= 0)
+        return;
+    a = (BYTE *)malloc((size_t)bw * bh * 4);
+    b = (BYTE *)malloc((size_t)bw * bh * 4);
+    if (!a || !b)
+    {
+        free(a);
+        free(b);
+        return;
+    }
+
+    for (y = 0; y < bh; y++)
+        memcpy(a + (size_t)y * bw * 4,
+               px + ((size_t)(y0 + y) * cw + x0) * 4,
+               (size_t)bw * 4);
+
+    for (y = 0; y < bh; y++)
+    {
+        int sum[4] = { 0, 0, 0, 0 };
+        const BYTE *row = a + (size_t)y * bw * 4;
+        BYTE *dst = b + (size_t)y * bw * 4;
+        int k, xx;
+
+        for (k = -R; k <= R; k++)
+        {
+            xx = k < 0 ? 0 : (k >= bw ? bw - 1 : k);
+            for (c = 0; c < 4; c++) sum[c] += row[xx * 4 + c];
+        }
+        for (x = 0; x < bw; x++)
+        {
+            for (c = 0; c < 4; c++) dst[x * 4 + c] = (BYTE)(sum[c] / win);
+            xx = x - R; if (xx < 0) xx = 0;
+            for (c = 0; c < 4; c++)
+                sum[c] -= row[xx * 4 + c];
+            xx = x + R + 1; if (xx >= bw) xx = bw - 1;
+            for (c = 0; c < 4; c++)
+                sum[c] += row[xx * 4 + c];
+        }
+    }
+
+    for (x = 0; x < bw; x++)
+    {
+        int sum[4] = { 0, 0, 0, 0 };
+        int k, yy;
+
+        for (k = -R; k <= R; k++)
+        {
+            yy = k < 0 ? 0 : (k >= bh ? bh - 1 : k);
+            for (c = 0; c < 4; c++)
+                sum[c] += b[((size_t)yy * bw + x) * 4 + c];
+        }
+        for (y = 0; y < bh; y++)
+        {
+            for (c = 0; c < 4; c++)
+                a[((size_t)y * bw + x) * 4 + c] = (BYTE)(sum[c] / win);
+            yy = y - R; if (yy < 0) yy = 0;
+            for (c = 0; c < 4; c++)
+                sum[c] -= b[((size_t)yy * bw + x) * 4 + c];
+            yy = y + R + 1; if (yy >= bh) yy = bh - 1;
+            for (c = 0; c < 4; c++)
+                sum[c] += b[((size_t)yy * bw + x) * 4 + c];
+        }
+    }
+
+    for (y = 0; y < bh; y++)
+        memcpy(px + ((size_t)(y0 + y) * cw + x0) * 4,
+               a + (size_t)y * bw * 4, (size_t)bw * 4);
+    free(a);
+    free(b);
+}
+
+static void punch_rect(BYTE *px, int cw, int ch, int ox, int oy,
+                       const RECT *target, int smooth)
+{
+    RECT wr, cap;
+    LONG x0, x1, y0, y1, x, y;
+
+    if (!px || !target)
+        return;
+
+    cap.left = ox;      cap.top = oy;
+    cap.right = ox + cw; cap.bottom = oy + ch;
+    if (!IntersectRect(&wr, target, &cap))
+        return;
+
+    x0 = wr.left - ox;  x1 = wr.right - ox;
+    y0 = wr.top - oy;   y1 = wr.bottom - oy;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > cw) x1 = cw;
+    if (y1 > ch) y1 = ch;
+    if (x1 <= x0 || y1 <= y0)
+        return;
+
+    for (y = y0; y < y1; y++)
+    {
+        /* mirror from the nearer horizontal seam, then fold into the frame */
+        int sy;
+        if (y - y0 <= y1 - 1 - y)
+            sy = fold_axis(y0 - 1 - (y - y0), 0, ch - 1);
+        else
+            sy = fold_axis(y1 + (y1 - 1 - y), 0, ch - 1);
+        BYTE *d = px + (size_t)y * cw * 4;
+        for (x = x0; x < x1; x++)
+        {
+            int sx;
+            if (x - x0 <= x1 - 1 - x)
+                sx = fold_axis(x0 - 1 - (x - x0), 0, cw - 1);
+            else
+                sx = fold_axis(x1 + (x1 - 1 - x), 0, cw - 1);
+            const BYTE *sp = px + (size_t)sy * cw * 4 + (size_t)sx * 4;
+            BYTE *dp = d + (size_t)x * 4;
+            dp[0] = sp[0];
+            dp[1] = sp[1];
+            dp[2] = sp[2];
+            dp[3] = sp[3];
+        }
+    }
+
+    if (smooth)
+        smooth_rect(px, cw, ch, (int)x0, (int)y0, (int)x1, (int)y1);
+}
+
+/* Reconstruct the pixels our own layered windows hid with a low-frequency
+ * copy of the SAME frame.  A mirror fill switches source at the half-way line
+ * (vertical split) and again on both axes (diagonal seam); at blur = 0 that
+ * reads as two different desktops glued together, with repeated, still
+ * legible text.  A coarse average of the untouched frame has no source switch
+ * at all: it is exactly what frosted glass shows - a diffused version of
+ * whatever is behind the card - and overlapping rects are filled from one
+ * common field, so no order-dependent patch is possible. */
+static BOOL punch_coarse(BYTE *px, int cw, int ch, int ox, int oy)
+{
+    RECT cap, list[2], uni, hit;
+    int n = 0, R = 20, dx0, dy0, dx1, dy1, bw, bh, i, y;
+    BYTE *tmp;
+
+    cap.left = ox;  cap.top = oy;
+    cap.right = ox + cw; cap.bottom = oy + ch;
+    memset(&uni, 0, sizeof(uni));
+
+    if (g_widget_rect_valid && IntersectRect(&hit, &g_widget_rect, &cap))
+    {
+        list[n++] = hit;
+        uni = hit;
+    }
+    if (g_menu_rect_valid && IntersectRect(&hit, &g_menu_rect, &cap))
+    {
+        list[n++] = hit;
+        if (n == 1) uni = hit;
+        else UnionRect(&uni, &uni, &hit);
+    }
+    if (n == 0)
+        return TRUE;
+
+    dx0 = uni.left - R;   if (dx0 < cap.left)   dx0 = cap.left;
+    dy0 = uni.top - R;    if (dy0 < cap.top)    dy0 = cap.top;
+    dx1 = uni.right + R;  if (dx1 > cap.right)  dx1 = cap.right;
+    dy1 = uni.bottom + R; if (dy1 > cap.bottom) dy1 = cap.bottom;
+    bw = dx1 - dx0;
+    bh = dy1 - dy0;
+    if (bw <= 0 || bh <= 0)
+        return FALSE;
+
+    tmp = (BYTE *)malloc((size_t)bw * bh * 4);
+    if (!tmp)
+        return FALSE;
+
+    for (y = 0; y < bh; y++)
+        memcpy(tmp + (size_t)y * bw * 4,
+               px + ((size_t)(dy0 - oy + y) * cw + (dx0 - ox)) * 4,
+               (size_t)bw * 4);
+
+    /* Two separable box passes: ~58 px effective diffusion.  Text, icons and
+     * the hard edge of a window behind the glass become one smooth field. */
+    smooth_rect(tmp, bw, bh, 0, 0, bw, bh);
+    smooth_rect(tmp, bw, bh, 0, 0, bw, bh);
+
+    for (i = 0; i < n; i++)
+    {
+        int x0 = (int)(list[i].left - ox), x1 = (int)(list[i].right - ox);
+        int y0 = (int)(list[i].top - oy),  y1 = (int)(list[i].bottom - oy);
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > cw) x1 = cw;
+        if (y1 > ch) y1 = ch;
+        for (y = y0; y < y1; y++)
+            memcpy(px + ((size_t)y * cw + x0) * 4,
+                   tmp + ((size_t)(y - (dy0 - oy)) * bw +
+                          (x0 - (dx0 - ox))) * 4,
+                   (size_t)(x1 - x0) * 4);
+    }
+    free(tmp);
+    return TRUE;
+}
+
+/* Fallback reconstruction, used only when SetWindowDisplayAffinity could not
+ * hide our windows from the grab.  With a clean capture this is never called,
+ * so the real desktop (including its fine detail) survives untouched. */
+static void punch_capture(BYTE *px, int cw, int ch, int ox, int oy, int smooth)
+{
+    if (!px || !g_capture_visible)
+        return;
+    if (punch_coarse(px, cw, ch, ox, oy))
+        return;
+    if (g_widget_rect_valid)
+        punch_rect(px, cw, ch, ox, oy, &g_widget_rect, smooth);
+    if (g_menu_rect_valid)
+        punch_rect(px, cw, ch, ox, oy, &g_menu_rect, smooth);
+}
+
 /* Builds the live tile around (x,y,w,h) with margin, then blurs it. */
 static BOOL tile_build(int x, int y, int w, int h, float radius)
 {
@@ -815,6 +1169,8 @@ static BOOL tile_build(int x, int y, int w, int h, float radius)
 
     if (!capture_rect(cx, cy, cw, ch, &full))
         return FALSE;
+
+    /* capture_rect() already excluded our own windows from this grab. */
 
     memset(&p, 0, sizeof(p));
     if (!plane_alloc(&p, cw / PLANE_SCALE, ch / PLANE_SCALE))
@@ -1018,6 +1374,87 @@ BOOL glass_capture(int x, int y, int w, int h, RgBitmap *out)
     out->w = w;
     out->h = h;
     out->px = px;
+    return TRUE;
+}
+
+/* Half-resolution variant of glass_blurred_copy: downsample 2x, blur, then
+ * bilinear upscale.  The blur is the dominant cost of opening the menu, and
+ * doing it at half size is ~4x cheaper; the result is what the live backdrop
+ * pipeline has been producing all along. */
+BOOL glass_blur_half(const RgBitmap *src, float radius, RgBitmap *out)
+{
+    int hw = src->w / 2, hh = src->h / 2;
+    BYTE *half, *up;
+    size_t bytes;
+    int x, y;
+
+    if (!src || !src->px || !out || hw < 4 || hh < 4)
+        return FALSE;
+
+    half = (BYTE *)malloc((size_t)hw * hh * 4);
+    if (!half)
+        return FALSE;
+
+    downsample2(src->px, src->w, src->h, half, hw, hh);
+    blur_bgra(half, hw, hh, radius * g_blur_scale * 0.5f);
+
+    bytes = (size_t)src->w * src->h * 4;
+    up = (BYTE *)malloc(bytes);
+    if (!up)
+    {
+        free(half);
+        return FALSE;
+    }
+
+    for (y = 0; y < src->h; y++)
+    {
+        float fy = ((float)y + 0.5f) * 0.5f - 0.5f;
+        int iy = (int)fy;
+        int iy1;
+        float ty;
+        BYTE *drow = up + (size_t)y * src->w * 4;
+
+        if (iy < 0) { iy = 0; ty = 0.0f; }
+        if (iy > hh - 1) { iy = hh - 1; ty = 0.0f; }
+        iy1 = iy + 1 < hh ? iy + 1 : iy;
+        ty = fy - (float)iy;
+        if (ty < 0.0f) ty = 0.0f; else if (ty > 1.0f) ty = 1.0f;
+
+        for (x = 0; x < src->w; x++)
+        {
+            float fx = ((float)x + 0.5f) * 0.5f - 0.5f;
+            int ix = (int)fx, ix1;
+            float tx, w00, w01, w10, w11;
+            const BYTE *a, *b, *cc, *d;
+            BYTE *o = drow + (size_t)x * 4;
+            int k;
+
+            if (ix < 0) { ix = 0; tx = 0.0f; }
+            if (ix > hw - 1) { ix = hw - 1; tx = 0.0f; }
+            ix1 = ix + 1 < hw ? ix + 1 : ix;
+            tx = fx - (float)ix;
+            if (tx < 0.0f) tx = 0.0f; else if (tx > 1.0f) tx = 1.0f;
+
+            a = half + ((size_t)iy * hw + ix) * 4;
+            b = half + ((size_t)iy * hw + ix1) * 4;
+            cc = half + ((size_t)iy1 * hw + ix) * 4;
+            d = half + ((size_t)iy1 * hw + ix1) * 4;
+            w00 = (1.0f - tx) * (1.0f - ty);
+            w01 = tx * (1.0f - ty);
+            w10 = (1.0f - tx) * ty;
+            w11 = tx * ty;
+            for (k = 0; k < 4; k++)
+            {
+                float v = a[k] * w00 + b[k] * w01 + cc[k] * w10 + d[k] * w11;
+                o[k] = (BYTE)(v + 0.5f);
+            }
+        }
+    }
+
+    free(half);
+    out->w = src->w;
+    out->h = src->h;
+    out->px = up;
     return TRUE;
 }
 

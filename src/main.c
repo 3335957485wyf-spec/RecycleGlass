@@ -36,13 +36,26 @@ static float     g_backdrop_blur = -1.0f;
  * early-out below treats "same position, same radius" as "nothing to do", so
  * the card kept the very first capture and never showed the desktop again. */
 static LONG      g_backdrop_gen = -1;
+/* Generation of the live capture that produced the current backdrop, and a
+ * serial that changes on every replacement.  They used to be the same value,
+ * which made a live frame that landed after a wallpaper fallback keep the
+ * same cache key - the static layer then showed the wallpaper until something
+ * else forced a rebuild. */
+static LONG      g_backdrop_live_gen = -1;
+static unsigned  g_backdrop_serial;
 
 static long long g_count, g_size;
 static BOOL      g_hover, g_drag_hover;
+static int       g_drag_count;
+static int       g_drag_has_dir;
+static unsigned long long g_drag_bytes;
 static float     g_btn_t[2];        /* eased pill highlight */
-static int       g_hover_btn;
+static int       g_hover_btn;       /* 0 none, 1 open, 2 empty, 3 title menu */
 static float     g_hover_t;
 static int       g_hover_target;
+static float     g_press;
+static float     g_press_target;
+static float     g_hover_span = HOVER_DUR;
 static ULONGLONG g_hover_t0;
 static BOOL      g_hover_ticking;
 
@@ -61,6 +74,7 @@ static wchar_t   g_toast[256];
 static ULONGLONG g_toast_until;
 
 static BOOL      g_busy;
+static int       g_busy_kind;       /* 1 = emptying, 2 = recycling */
 static ULONGLONG g_busy_t0;
 
 static BOOL      g_running = TRUE;
@@ -68,6 +82,9 @@ static BOOL      g_cfg_dirty;
 
 static NOTIFYICONDATAW g_nid;
 static HICON     g_tray_icon;
+static HICON     g_icon_orig;
+static BOOL      g_tray_icon_owned;
+static BOOL      g_tray_added;
 static UINT      g_taskbar_msg;
 
 static CRITICAL_SECTION g_lock;
@@ -78,6 +95,47 @@ static wchar_t   g_op_msg[256];
 static HANDLE    g_wake, g_stop_evt, g_poll_thread;
 
 /* --------------------------------------------------------------- helpers */
+
+static const wchar_t *GLASS_NAMES[3] = { L"crystal", L"aurora", L"mist" };
+static const wchar_t *ACCENT_NAMES[6] = { L"blue", L"violet", L"mint",
+                                          L"peach", L"amber", L"lime" };
+
+static int glass_style_index(void)
+{
+    int i;
+    for (i = 0; i < 3; i++)
+        if (wcscmp(g_cfg.glass, GLASS_NAMES[i]) == 0)
+            return i;
+    return 0;
+}
+
+static int accent_style_index(void)
+{
+    int i;
+    for (i = 0; i < RG_COUNT(ACCENT_NAMES); i++)
+        if (wcscmp(g_cfg.accent, ACCENT_NAMES[i]) == 0)
+            return i;
+    return 0;
+}
+
+static int icon_style_index(void)
+{
+    return wcscmp(g_cfg.icon, L"classic") == 0 ? 1 : 0;
+}
+
+/* Motion is deliberately not a slider any more: the old control only moved a
+ * 190 ms transition between ~72 and ~243 ms, which is impossible to judge from
+ * a menu that is covering the card.  The timing now stays at the value 4.1
+ * shipped with, and Windows' "reduce animation" preference still wins:
+ * returning 0 snaps every transition instead of leaving a half-open menu. */
+static float motion_amount(void)
+{
+    BOOL enabled = TRUE;
+    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0);
+    if (!enabled)
+        return 0.0f;
+    return 0.70f;
+}
 
 static ULONGLONG now_ms(void)
 {
@@ -128,6 +186,11 @@ typedef struct {
 } Prof;
 
 static Prof g_pf;
+
+/* Slider preview state (defined here so ensure_backdrop() can see it). */
+static BOOL      g_preview_active;     /* a slider is being dragged */
+static ULONGLONG g_preview_last_us;    /* last value update of any kind */
+static ULONGLONG g_preview_render_us;  /* last actual card repaint */
 
 static int prof_on(void)
 {
@@ -410,6 +473,7 @@ static void invalidate_backdrop(void)
 static void init_capture(void)
 {
     g_live_backdrop = FALSE;
+    glass_set_capture_visible(g_cfg.capture_visible);
 
     if (wcscmp(g_cfg.blur_mode, L"wallpaper") == 0)
     {
@@ -418,12 +482,32 @@ static void init_capture(void)
         SetWindowDisplayAffinity(g_hwnd, 0 /* WDA_NONE */);
         return;
     }
-    if (!glass_live_available())
+    /* Capture-visible mode keeps the widget out of the exclusion list so
+     * screenshots include it; glass.c punches the widget rect out of the
+     * backdrop captures instead. */
+    if (g_cfg.capture_visible)
+    {
+        /* The card is in the grab now, but glass.c reconstructs those pixels
+         * with a low-frequency copy of the same frame.  So the card can keep
+         * using the REAL desktop as its backdrop, exactly like the menu does -
+         * the old "fall back to the static wallpaper" left the two windows
+         * showing two different worlds. */
+        SetWindowDisplayAffinity(g_hwnd, 0 /* WDA_NONE */);
+        g_live_backdrop = glass_live_available();
+        diag(L"capture visible=1 (no wda, live=%d)", (int)g_live_backdrop);
         return;
+    }
+
+    if (!glass_live_available())
+    {
+        return;
+    }
 
     /* WDA_EXCLUDEFROMCAPTURE: the window is invisible to BitBlt of the desktop. */
     if (!SetWindowDisplayAffinity(g_hwnd, 0x00000011))
+    {
         return;
+    }
 
     g_live_backdrop = TRUE;
 }
@@ -448,17 +532,38 @@ static void ensure_backdrop(void)
     else if (!GetWindowRect(g_hwnd, &r))
         return;
 
+    glass_set_widget_rect(r.left, r.top, r.right - r.left, r.bottom - r.top);
+
     bx = r.left + render_pad();
     by = r.top + render_pad();
     bw = render_card_w();
     bh = render_card_h();
+    {
+        /* Capture a margin around the card: the rim refracts the desktop just
+         * outside the glass, not the pixels underneath it. */
+        int rp = render_refract_pad();
+        bx -= rp;
+        by -= rp;
+        bw += rp * 2;
+        bh += rp * 2;
+    }
 
     p1 = now_us();
+    /* While a slider is dragged the backdrop itself does not change - only the
+     * material drawn on top of it does.  Re-running the full-resolution
+     * wallpaper blur on every step is what stalled the drag; menu_set()
+     * invalidates the cache once when the drag ends. */
+    if (g_preview_active && g_backdrop_valid &&
+        g_backdrop_x == bx && g_backdrop_y == by &&
+        g_backdrop.w == bw && g_backdrop.h == bh &&
+        p1 - g_preview_last_us < 250000)
+        return;
+
     if (g_backdrop_valid &&
         g_backdrop_x == bx && g_backdrop_y == by &&
         g_backdrop.w == bw && g_backdrop.h == bh &&
         g_backdrop_blur == g_cfg.blur_radius &&
-        (!g_live_backdrop || (g_backdrop_live && g_backdrop_gen == glass_live_gen())))
+        (!g_live_backdrop || (g_backdrop_live && g_backdrop_live_gen == glass_live_gen())))
         return;
 
     if (g_live_backdrop)
@@ -494,7 +599,8 @@ static void ensure_backdrop(void)
             g_backdrop_y = by;
             g_backdrop_blur = g_cfg.blur_radius;
             g_backdrop_live = TRUE;
-            g_backdrop_gen = glass_live_gen();
+            g_backdrop_live_gen = glass_live_gen();
+            g_backdrop_gen = (LONG)++g_backdrop_serial;
         }
         /* No slide-to-follow any more: sliding a still frame to the new window
          * position leaves a strip of duplicated edge rows along the leading
@@ -512,7 +618,7 @@ static void ensure_backdrop(void)
             g_backdrop_y = by;
             g_backdrop_blur = g_cfg.blur_radius;
             g_backdrop_live = FALSE;
-            g_backdrop_gen = glass_live_gen();
+            g_backdrop_gen = (LONG)++g_backdrop_serial;
         }
         g_pf.eb_us += now_us() - p2;
         return;
@@ -527,6 +633,8 @@ static void ensure_backdrop(void)
         g_backdrop_x = bx;
         g_backdrop_y = by;
         g_backdrop_blur = g_cfg.blur_radius;
+        g_backdrop_live = FALSE;
+        g_backdrop_gen = (LONG)++g_backdrop_serial;
     }
 }
 
@@ -537,11 +645,29 @@ static void subtitle_text(wchar_t *out, size_t cap)
     if (g_busy)
     {
         long long secs = (long long)((now_ms() - g_busy_t0) / 1000);
-        swprintf_s(out, cap, T(S_BUSY_EMPTY), secs);
+        swprintf_s(out, cap, T(g_busy_kind == 2 ? S_BUSY_RECYCLE : S_BUSY_EMPTY),
+                   secs);
         return;
     }
     if (g_drag_hover)
     {
+        if (g_drag_count > 0 && g_drag_has_dir)
+        {
+            swprintf_s(out, cap, T(S_DROP_COUNT_DIR), g_drag_count);
+            return;
+        }
+        if (g_drag_count > 0 && g_drag_bytes > 0)
+        {
+            wchar_t sz[64];
+            shell_format_size((long long)g_drag_bytes, sz, RG_COUNT(sz));
+            swprintf_s(out, cap, T(S_DROP_COUNT), g_drag_count, sz);
+            return;
+        }
+        if (g_drag_count > 0)
+        {
+            swprintf_s(out, cap, T(S_DROP_COUNT_ONLY), g_drag_count);
+            return;
+        }
         wcscpy_s(out, cap, T(S_DROP_HINT));
         return;
     }
@@ -562,14 +688,26 @@ static void subtitle_text(wchar_t *out, size_t cap)
 
 /* ------------------------------------------------------------------ toast */
 
-static void show_toast(const wchar_t *text)
+static void show_toast_ms(const wchar_t *text, ULONGLONG duration)
 {
     if (!text || !*text)
         return;
     wcsncpy_s(g_toast, RG_COUNT(g_toast), text, _TRUNCATE);
-    g_toast_until = now_ms() + TOAST_MS;
+    g_toast_until = now_ms() + duration;
     if (g_hwnd)
         SetTimer(g_hwnd, RG_TIMER_TOAST, 120, NULL);
+}
+
+static void show_toast(const wchar_t *text)
+{
+    show_toast_ms(text, TOAST_MS);
+}
+
+/* Failures need enough time to be read; a 2.6 s confirmation is fine for a
+ * success but disappears before the user can act on an error. */
+static void show_toast_error(const wchar_t *text)
+{
+    show_toast_ms(text, 7000);
 }
 
 /* ------------------------------------------------------------------ paint */
@@ -671,6 +809,15 @@ static void refresh(void)
     st.has_fx = g_fx_active;
     st.fx_t = g_fx_t;
     st.dark = is_dark();
+    st.glass_style = glass_style_index();
+    st.accent = accent_style_index();
+    st.corner_radius = g_cfg.corner_radius;
+    st.refraction = g_cfg.refraction;
+    st.icon_style = icon_style_index();
+    st.light_phase = fmodf(0.18f + g_hover_t * 0.58f +
+                           (g_fx_active ? g_fx_t * 0.22f : 0.0f), 1.0f);
+    st.press = g_press * ((g_hover_btn == 1 || g_hover_btn == 2 ||
+                           g_hover_btn == 3) ? 1.0f : 0.55f);
 
     render_card(&g_surf, &st);
 
@@ -774,23 +921,33 @@ static void kick_hover(void)
 static void start_hover_anim(int target)
 {
     float from;
+    float motion = motion_amount();
 
     if (g_hover_target == target)
         return;
 
     g_hover_target = target;
+    g_hover_span = HOVER_DUR * (0.38f + 0.90f * motion);
+
+    if (motion <= 0.01f)
+    {
+        g_hover_t = (float)target;
+        g_press = g_press_target;
+        refresh();
+        return;
+    }
 
     /* Re-base the clock on the current progress so a reversal mid-flight
      * continues from where the animation actually is. */
     from = target ? g_hover_t : (1.0f - g_hover_t);
-    g_hover_t0 = now_ms() - (ULONGLONG)(from * HOVER_DUR * 1000.0f);
+    g_hover_t0 = now_ms() - (ULONGLONG)(from * g_hover_span * 1000.0f);
 
     kick_hover();
 }
 
 static void tick_hover(void)
 {
-    float t = (float)(now_ms() - g_hover_t0) / (HOVER_DUR * 1000.0f);
+    float t = (float)(now_ms() - g_hover_t0) / (g_hover_span * 1000.0f);
     BOOL settled = TRUE;
     int i;
 
@@ -821,6 +978,17 @@ static void tick_hover(void)
         }
     }
 
+    {
+        float d = g_press_target - g_press;
+        if (fabsf(d) < 0.02f)
+            g_press = g_press_target;
+        else
+        {
+            g_press += d * 0.42f;
+            settled = FALSE;
+        }
+    }
+
     if (settled)
     {
         g_hover_ticking = FALSE;
@@ -832,6 +1000,12 @@ static void tick_hover(void)
 
 static void start_fx(void)
 {
+    g_fx_active = FALSE;
+    if (motion_amount() <= 0.01f)
+    {
+        refresh();
+        return;
+    }
     g_fx_active = TRUE;
     g_fx_t = 0.0f;
     g_fx_t0 = now_ms();
@@ -840,7 +1014,8 @@ static void start_fx(void)
 
 static void tick_fx(void)
 {
-    float t = (float)(now_ms() - g_fx_t0) / (FX_DUR * 1000.0f);
+    float t = (float)(now_ms() - g_fx_t0) /
+              (FX_DUR * (0.45f + 0.85f * motion_amount()) * 1000.0f);
 
     if (t >= 1.0f)
     {
@@ -878,14 +1053,67 @@ static void update_tray_tip(void)
     Shell_NotifyIconW(NIM_MODIFY, &g_nid);
 }
 
-static void init_tray(void)
+static HICON original_icon(void)
 {
     int cx = GetSystemMetrics(SM_CXSMICON);
     int cy = GetSystemMetrics(SM_CYSMICON);
 
-    if (!g_tray_icon)
-        g_tray_icon = (HICON)LoadImageW(g_inst, MAKEINTRESOURCEW(IDI_TRAY),
+    if (!g_icon_orig)
+        g_icon_orig = (HICON)LoadImageW(g_inst, MAKEINTRESOURCEW(IDI_TRAY),
                                         IMAGE_ICON, cx, cy, LR_DEFAULTCOLOR);
+    return g_icon_orig;
+}
+
+/* The mark is not a fixed blue asset any more: the notification-area icon is
+ * generated from the same gradient chip as the card, so choosing lime really
+ * does turn the whole product lime.  The original blue chip stays available
+ * through the "original" icon option. */
+static void update_app_icons(void)
+{
+    HICON old = g_tray_icon;
+    BOOL old_owned = g_tray_icon_owned;
+    HICON icon = NULL;
+    int size = GetSystemMetrics(SM_CXSMICON);
+
+    if (icon_style_index() == 1)
+    {
+        icon = original_icon();
+        g_tray_icon_owned = FALSE;
+    }
+    else
+    {
+        icon = render_make_icon(accent_style_index(), is_dark() ? 1 : 0,
+                                size > 0 ? size : 16);
+        g_tray_icon_owned = icon != NULL;
+        if (!icon)
+            icon = original_icon();
+        if (!icon)
+            icon = LoadIconW(NULL, IDI_APPLICATION);
+    }
+
+    if (!icon)
+        return;
+
+    g_tray_icon = icon;
+    if (g_hwnd)
+        SendMessageW(g_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+
+    if (g_nid.cbSize)
+    {
+        g_nid.hIcon = icon;
+        g_nid.uFlags = NIF_ICON | NIF_TIP;
+        if (g_tray_added)
+            Shell_NotifyIconW(NIM_MODIFY, &g_nid);
+    }
+
+    if (old_owned && old && old != icon)
+        DestroyIcon(old);
+}
+
+static void init_tray(void)
+{
+    if (!g_tray_icon)
+        update_app_icons();
     if (!g_tray_icon)
         g_tray_icon = LoadIconW(NULL, IDI_APPLICATION);
 
@@ -898,7 +1126,8 @@ static void init_tray(void)
     g_nid.hIcon = g_tray_icon;
     wcscpy_s(g_nid.szTip, RG_COUNT(g_nid.szTip), RG_APP_NAME);
 
-    Shell_NotifyIconW(NIM_ADD, &g_nid);
+    if (Shell_NotifyIconW(NIM_ADD, &g_nid))
+        g_tray_added = TRUE;
     update_tray_tip();
 }
 
@@ -908,6 +1137,7 @@ static void remove_tray(void)
     {
         Shell_NotifyIconW(NIM_DELETE, &g_nid);
         memset(&g_nid, 0, sizeof(g_nid));
+        g_tray_added = FALSE;
     }
 }
 
@@ -958,19 +1188,49 @@ static DWORD WINAPI op_thread(LPVOID param)
     return 0;
 }
 
+static void free_job(OpJob *job)
+{
+    int i;
+    if (!job)
+        return;
+    for (i = 0; i < job->n; i++)
+        free(job->paths[i]);
+    free(job->paths);
+    free(job);
+}
+
+static void abort_job(OpJob *job)
+{
+    g_busy = FALSE;
+    g_busy_kind = 0;
+    KillTimer(g_hwnd, RG_TIMER_BUSY);
+    free_job(job);
+    show_toast_error(T(S_TOAST_FAILED));
+    refresh();
+}
+
 static void start_empty(void)
 {
     OpJob *job;
 
     if (g_busy)
+    {
+        show_toast(T(S_TOAST_BUSY));
+        refresh();
         return;
+    }
 
     job = (OpJob *)calloc(1, sizeof(*job));
     if (!job)
+    {
+        show_toast_error(T(S_TOAST_FAILED));
+        refresh();
         return;
+    }
     job->kind = 0;
 
     g_busy = TRUE;
+    g_busy_kind = 1;
     g_busy_t0 = now_ms();
     SetTimer(g_hwnd, RG_TIMER_BUSY, 500, NULL);
     refresh();
@@ -980,10 +1240,7 @@ static void start_empty(void)
         if (th)
             CloseHandle(th);
         else
-        {
-            g_busy = FALSE;
-            free(job);
-        }
+            abort_job(job);
     }
 }
 
@@ -994,10 +1251,21 @@ static void start_recycle(wchar_t **paths, int n)
 
     if (n <= 0)
         return;
+    if (g_busy)
+    {
+        g_drag_hover = FALSE;
+        show_toast(T(S_TOAST_BUSY));
+        refresh();
+        return;
+    }
 
     job = (OpJob *)calloc(1, sizeof(*job));
     if (!job)
+    {
+        show_toast_error(T(S_TOAST_FAILED));
+        refresh();
         return;
+    }
 
     job->kind = 1;
     job->n = n;
@@ -1005,27 +1273,41 @@ static void start_recycle(wchar_t **paths, int n)
     if (!job->paths)
     {
         free(job);
+        show_toast_error(T(S_TOAST_FAILED));
+        refresh();
         return;
     }
 
     for (i = 0; i < n; i++)
     {
-        size_t len = wcslen(paths[i]) + 1;
+        size_t len;
+        if (!paths[i])
+        {
+            abort_job(job);
+            return;
+        }
+        len = wcslen(paths[i]) + 1;
         job->paths[i] = (wchar_t *)calloc(len, sizeof(wchar_t));
-        if (job->paths[i])
-            wcscpy_s(job->paths[i], len, paths[i]);
+        if (!job->paths[i])
+        {
+            abort_job(job);
+            return;
+        }
+        wcscpy_s(job->paths[i], len, paths[i]);
     }
 
     g_busy = TRUE;
+    g_busy_kind = 2;
     g_busy_t0 = now_ms();
     SetTimer(g_hwnd, RG_TIMER_BUSY, 500, NULL);
+    refresh();
 
     {
         HANDLE th = CreateThread(NULL, 0, op_thread, job, 0, NULL);
         if (th)
             CloseHandle(th);
         else
-            g_busy = FALSE;
+            abort_job(job);
     }
 }
 
@@ -1192,6 +1474,7 @@ static void handle_command(int cmd)
         wcscpy_s(g_cfg.theme, RG_COUNT(g_cfg.theme), L"system");
         invalidate_backdrop();
         render_invalidate();
+        update_app_icons();
         refresh();
         g_cfg_dirty = TRUE;
         break;
@@ -1199,6 +1482,7 @@ static void handle_command(int cmd)
         wcscpy_s(g_cfg.theme, RG_COUNT(g_cfg.theme), L"light");
         invalidate_backdrop();
         render_invalidate();
+        update_app_icons();
         refresh();
         g_cfg_dirty = TRUE;
         break;
@@ -1206,6 +1490,7 @@ static void handle_command(int cmd)
         wcscpy_s(g_cfg.theme, RG_COUNT(g_cfg.theme), L"dark");
         invalidate_backdrop();
         render_invalidate();
+        update_app_icons();
         refresh();
         g_cfg_dirty = TRUE;
         break;
@@ -1219,16 +1504,72 @@ static void handle_command(int cmd)
         apply_appearance();
         break;
 
+    case RG_CMD_CAPTURE:
+        g_cfg.capture_visible = !g_cfg.capture_visible;
+        init_capture();
+        menu_sync_capture();   /* the menu window must follow the same switch */
+        if (g_live_backdrop)
+            glass_live_set_target(g_hwnd);
+        glass_live_invalidate();
+        invalidate_backdrop();
+        render_invalidate();
+        refresh();
+        g_cfg_dirty = TRUE;
+        break;
+
+    case RG_CMD_ICON_ACCENT:
+    case RG_CMD_ICON_CLASSIC:
+        wcscpy_s(g_cfg.icon, RG_COUNT(g_cfg.icon),
+                 cmd == RG_CMD_ICON_CLASSIC ? L"classic" : L"accent");
+        render_invalidate();
+        update_app_icons();
+        refresh();
+        g_cfg_dirty = TRUE;
+        break;
+
+    case RG_CMD_GLASS_CRYSTAL:
+    case RG_CMD_GLASS_AURORA:
+    case RG_CMD_GLASS_MIST:
+        wcscpy_s(g_cfg.glass, RG_COUNT(g_cfg.glass),
+                 cmd == RG_CMD_GLASS_AURORA ? L"aurora" :
+                 (cmd == RG_CMD_GLASS_MIST ? L"mist" : L"crystal"));
+        render_invalidate();
+        refresh();
+        g_cfg_dirty = TRUE;
+        break;
+
     case RG_CMD_RESET:
-        g_cfg.opacity = 0.78f;
+        /* 0.60 under the new coverage map reads the same as 0.78 did under
+         * the old 0.30+0.70 map - a reset must not change how the card looks,
+         * only how the slider reaches that look. */
+        g_cfg.opacity = 0.60f;
         g_cfg.material = 0.55f;
         g_cfg.blur_radius = 24.0f;
+        g_cfg.corner_radius = 32.0f;
+        g_cfg.refraction = 0.55f;
+        g_cfg.motion = 0.70f;
         wcscpy_s(g_cfg.theme, RG_COUNT(g_cfg.theme), L"system");
         wcscpy_s(g_cfg.size, RG_COUNT(g_cfg.size), L"normal");
+        wcscpy_s(g_cfg.glass, RG_COUNT(g_cfg.glass), L"crystal");
+        wcscpy_s(g_cfg.accent, RG_COUNT(g_cfg.accent), L"blue");
+        wcscpy_s(g_cfg.icon, RG_COUNT(g_cfg.icon), L"accent");
         apply_appearance();
+        update_app_icons();
+        show_toast(T(S_TOAST_RESET));
         break;
 
     default:
+        if (cmd >= RG_CMD_ACCENT_BASE &&
+            cmd < RG_CMD_ACCENT_BASE + RG_COUNT(ACCENT_NAMES))
+        {
+            wcscpy_s(g_cfg.accent, RG_COUNT(g_cfg.accent),
+                     ACCENT_NAMES[cmd - RG_CMD_ACCENT_BASE]);
+            render_invalidate();
+            update_app_icons();
+            refresh();
+            g_cfg_dirty = TRUE;
+        }
+        else
         if (cmd >= RG_CMD_BLUR_BASE && cmd < RG_CMD_BLUR_BASE + RG_COUNT(BLUR_STEPS))
         {
             g_cfg.blur_radius = (float)BLUR_STEPS[cmd - RG_CMD_BLUR_BASE];
@@ -1271,17 +1612,28 @@ static float menu_query_scale(void)
     return render_scale();
 }
 
-/* Live slider feedback from the menu: values arrive already quantised. */
-/* Slider drag preview.  Repainting the card on *every* step saturated the UI
- * thread (the slider sends 500+ updates a second); repainting it never made the
- * drag feel dead.  20 fps is the middle ground - the card visibly follows the
- * slider, and each repaint costs 2 ms instead of 500 of them a second. */
-/* While a slider is being dragged this runs on every mouse move, so it must
- * stay allocation- and repaint-free: the menu repaints itself from cfg right
- * after this returns, and the card is behind the menu anyway.  Everything
- * expensive (re-blur, card repaint) waits for menu_set() at the drag end. */
+/* Live slider feedback.  The card has to follow the knob continuously - a
+ * value that only jumps at drag end reads as a stepper, not a stepless
+ * control.  The pointer can deliver 500+ moves a second, so repaints are
+ * capped at the display refresh rate (never above 125 Hz); that keeps the UI
+ * thread free without making the card look choppy. */
+static void preview_maybe_refresh(void)
+{
+    ULONGLONG now = now_us();
+    ULONGLONG gap = g_drag_frame_us;
+
+    if (gap < 8000)
+        gap = 8000;
+    if (now - g_preview_render_us < gap)
+        return;
+    g_preview_render_us = now;
+    refresh();
+}
+
 static void menu_preview(int id, float v)
 {
+    int visual = TRUE;
+
     switch (id)
     {
     case RG_SET_BLUR:
@@ -1289,20 +1641,40 @@ static void menu_preview(int id, float v)
         g_cfg_dirty = TRUE;
         break;
     case RG_SET_OPACITY:
-        g_cfg.opacity = rg_clampf(v, 0.2f, 1.0f);
+        g_cfg.opacity = rg_clampf(v, 0.30f, 1.0f);
         g_cfg_dirty = TRUE;
         break;
     case RG_SET_MATERIAL:
         g_cfg.material = rg_clampf(v, 0.0f, 1.0f);
         g_cfg_dirty = TRUE;
         break;
-    default:
+    case RG_SET_CORNER:
+        g_cfg.corner_radius = rg_clampf(v, 12.0f, 52.0f);
+        g_cfg_dirty = TRUE;
         break;
+    case RG_SET_REFRACTION:
+        g_cfg.refraction = rg_clampf(v, 0.0f, 1.0f);
+        g_cfg_dirty = TRUE;
+        break;
+    case RG_SET_MOTION:
+        g_cfg.motion = rg_clampf(v, 0.0f, 1.0f);
+        g_cfg_dirty = TRUE;
+        visual = FALSE;   /* motion has no effect on a static card */
+        break;
+    default:
+        return;
     }
+
+    g_preview_active = TRUE;
+    g_preview_last_us = now_us();
+    if (visual)
+        preview_maybe_refresh();
 }
 
 static void menu_set(int id, float v)
 {
+    g_preview_active = FALSE;
+
     switch (id)
     {
     case RG_SET_OPACITY:
@@ -1313,6 +1685,26 @@ static void menu_set(int id, float v)
 
     case RG_SET_MATERIAL:
         g_cfg.material = rg_clampf(v, 0.0f, 1.0f);
+        refresh();
+        g_cfg_dirty = TRUE;
+        break;
+
+    case RG_SET_CORNER:
+        g_cfg.corner_radius = rg_clampf(v, 12.0f, 52.0f);
+        render_invalidate();
+        refresh();
+        g_cfg_dirty = TRUE;
+        break;
+
+    case RG_SET_REFRACTION:
+        g_cfg.refraction = rg_clampf(v, 0.0f, 1.0f);
+        render_invalidate();
+        refresh();
+        g_cfg_dirty = TRUE;
+        break;
+
+    case RG_SET_MOTION:
+        g_cfg.motion = rg_clampf(v, 0.0f, 1.0f);
         refresh();
         g_cfg_dirty = TRUE;
         break;
@@ -1351,8 +1743,11 @@ static void show_menu(void)
 
 /* ------------------------------------------------------------- drop hooks */
 
-static void on_drag_enter(void)
+static void on_drag_enter(int count, unsigned long long bytes, int has_folder)
 {
+    g_drag_count = count;
+    g_drag_bytes = bytes;
+    g_drag_has_dir = has_folder;
     if (!g_drag_hover)
     {
         g_drag_hover = TRUE;
@@ -1362,6 +1757,9 @@ static void on_drag_enter(void)
 
 static void on_drag_leave(void)
 {
+    g_drag_count = 0;
+    g_drag_bytes = 0;
+    g_drag_has_dir = 0;
     if (g_drag_hover)
     {
         g_drag_hover = FALSE;
@@ -1372,6 +1770,9 @@ static void on_drag_leave(void)
 static void on_drag_files(wchar_t **paths, int n)
 {
     g_drag_hover = FALSE;
+    g_drag_count = 0;
+    g_drag_bytes = 0;
+    g_drag_has_dir = 0;
     start_recycle(paths, n);
     refresh();
 }
@@ -1384,6 +1785,8 @@ static BOOL pt_in(const RECT *r, int x, int y)
 
 static int hit_pill(int x, int y)
 {
+    if (pt_in(&g_hit_menu, x, y))
+        return 3;
     if (pt_in(&g_hit_open, x, y))
         return 1;
     if (pt_in(&g_hit_empty, x, y))
@@ -1476,10 +1879,16 @@ static void on_op_done(void)
     LeaveCriticalSection(&g_lock);
 
     g_busy = FALSE;
+    g_busy_kind = 0;
     KillTimer(g_hwnd, RG_TIMER_BUSY);
 
     if (msg[0])
-        show_toast(msg);
+    {
+        if (ok)
+            show_toast(msg);
+        else
+            show_toast_error(msg);
+    }
 
     if (ok)
         start_fx();
@@ -1618,14 +2027,46 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
 
+    case WM_SETCURSOR:
+        if (LOWORD(lp) == HTCLIENT)
+        {
+            POINT pt;
+            int hot;
+            GetCursorPos(&pt);
+            ScreenToClient(hwnd, &pt);
+            hot = pt_in_card(pt.x, pt.y) ? hit_pill(pt.x, pt.y) : 0;
+            if (hot)
+            {
+                SetCursor(LoadCursorW(NULL, IDC_HAND));
+                return TRUE;
+            }
+        }
+        break;
+
     case WM_LBUTTONDOWN:
     {
         RECT wr;
+        int down_hit;
 
         SetCapture(hwnd);
         g_btn_down = TRUE;
         g_mouse_down.x = GET_X_LPARAM(lp);
         g_mouse_down.y = GET_Y_LPARAM(lp);
+        down_hit = pt_in_card(g_mouse_down.x, g_mouse_down.y)
+                 ? hit_pill(g_mouse_down.x, g_mouse_down.y) : 0;
+        if (down_hit && down_hit != 3)
+        {
+            g_press_target = 1.0f;
+            if (motion_amount() <= 0.01f)
+            {
+                g_press = 1.0f;
+                refresh();
+            }
+            else
+            {
+                kick_hover();
+            }
+        }
 
         /* Anchor the drag here, at press time.  Doing it on the first
          * WM_MOUSEMOVE loses whatever distance the pointer covered between the
@@ -1648,6 +2089,14 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
         ReleaseCapture();
         g_btn_down = FALSE;
+        if (g_press_target != 0.0f || g_press != 0.0f)
+        {
+            g_press_target = 0.0f;
+            if (motion_amount() <= 0.01f)
+                g_press = 0.0f;
+            else
+                kick_hover();
+        }
 
         if (g_dragging)
         {
@@ -1675,6 +2124,8 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             handle_command(RG_CMD_OPEN);
         else if (btn == 2)
             handle_command(RG_CMD_EMPTY);
+        else if (btn == 3)
+            show_menu();
         return 0;
     }
 
@@ -1696,6 +2147,16 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         switch (wp)
         {
         case RG_TIMER_POLL:
+        {
+            static int last_dark = -1;
+            int d = is_dark();
+            if (last_dark >= 0 && d != last_dark)
+            {
+                render_invalidate();
+                update_app_icons();
+                refresh();
+            }
+            last_dark = d;
             request_query();
             /* Debounced config flush: slider drags mark the config dirty many
              * times per second, so persist at most once per poll tick. */
@@ -1705,6 +2166,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                 save_cfg();
             }
             break;
+        }
         case RG_TIMER_HOVER:
             tick_hover();
             break;
@@ -1722,7 +2184,11 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         case RG_TIMER_GLASS:
             if (!g_dragging)
             {
-                invalidate_backdrop();
+                /* Do not invalidate: that clears the published plane and the
+                 * repaint below would always miss, falling back to the
+                 * wallpaper.  The capture worker publishes a new generation on
+                 * its own and notifies us; follow() only has to keep it aimed
+                 * at the card. */
                 refresh();
             }
             break;
@@ -1874,6 +2340,7 @@ static BOOL create_window(void)
     if (!g_hwnd)
         return FALSE;
 
+    glass_set_capture_hwnd(0, g_hwnd);
     DragAcceptFiles(g_hwnd, TRUE);
     return TRUE;
 }

@@ -10,7 +10,7 @@
 
 #include "common.h"
 
-#define RG_CONFIG_VERSION 3
+#define RG_CONFIG_VERSION 4
 
 typedef struct {
     int   version;
@@ -19,8 +19,15 @@ typedef struct {
     float material;
     float blur_radius;
     wchar_t size[16];      /* small | normal | large */
-    wchar_t blur_mode[16]; /* native | wallpaper  (native degrades to wallpaper) */
+    wchar_t blur_mode[16]; /* screen | wallpaper */
     wchar_t theme[16];     /* system | light | dark */
+    wchar_t glass[16];     /* crystal | aurora | mist */
+    wchar_t accent[16];    /* blue | violet | mint | peach | amber | lime */
+    wchar_t icon[16];      /* accent | classic */
+    float corner_radius;   /* reference-DPI pixels, 12..44 */
+    float refraction;      /* 0..1 */
+    float motion;          /* 0..1; scales hover/entry animation */
+    int   capture_visible; /* show the widget in screenshots */
     int   auto_dpi;
     int   topmost;         /* keep above normal windows (off by default) */
     wchar_t language[8];   /* auto | zh | en */

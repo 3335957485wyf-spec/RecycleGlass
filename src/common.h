@@ -36,7 +36,40 @@
 #include <math.h>
 
 #define RG_APP_NAME  L"RecycleGlass"
-#define RG_VERSION   L"4.0.0"
+#define RG_VERSION   L"4.11.1"
+/* Shared squircle exponent: flatter shoulders than a rounded rectangle, with a
+ * tighter, more deliberate corner than a circle. */
+#define RG_SQUIRCLE_N 2.0f
+
+/* ---- Apple-style concentric geometry ------------------------------------
+ * One golden unit U = R / phi drives every spacing in the UI.  Nested levels
+ * use U, U/phi, U/phi^2, U/phi^3 - never an arbitrary 10/12/8/4 px mixture.
+ * A shape inset by d from its parent takes radius (R_parent - d), so both
+ * corner arcs share the same centre: this is Apple's "concentric corners".
+ * With d = R/phi the inner radius becomes R/phi^2, i.e. the golden series
+ * R, R/phi^2, ... - the gaps and the radii come from the same number. */
+#define RG_PHI 1.6180339887498948f
+
+static inline float rg_phi_unit(float outer_radius)
+{
+    return outer_radius / RG_PHI;
+}
+
+static inline int rg_phi_step(float unit, int k)
+{
+    float v = unit;
+    int i;
+    for (i = 0; i < k; i++)
+        v /= RG_PHI;
+    return (int)lroundf(v);
+}
+
+static inline float rg_concentric(float outer_radius, float inset)
+{
+    float r = outer_radius - inset;
+    return r > 0.5f ? r : 0.5f;
+}
+
 #define RG_CLASS     L"RecycleGlassWidgetC"
 #define RG_MENUCLASS L"RecycleGlassMenu"
 #define RG_MUTEX     L"RecycleGlassSingletonC"
@@ -82,6 +115,16 @@
 #define RG_SET_OPACITY        170   /* continuous slider values */
 #define RG_SET_MATERIAL       171
 #define RG_SET_BLUR           172
+#define RG_SET_CORNER         173
+#define RG_SET_REFRACTION     174
+#define RG_SET_MOTION         175
+#define RG_CMD_GLASS_CRYSTAL  180
+#define RG_CMD_GLASS_AURORA   181
+#define RG_CMD_GLASS_MIST     182
+#define RG_CMD_ACCENT_BASE    190   /* + accent index: blue violet mint peach amber lime */
+#define RG_CMD_ICON_ACCENT    200   /* app mark follows the accent */
+#define RG_CMD_CAPTURE        202   /* show the widget in screenshots */
+#define RG_CMD_ICON_CLASSIC   201   /* original blue chip */
 
 /* ---- small helpers ------------------------------------------------------ */
 static __inline float rg_clampf(float v, float lo, float hi)

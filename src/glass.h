@@ -59,6 +59,22 @@ BOOL glass_capture(int x, int y, int w, int h, RgBitmap *out);
 /* Blurs `src` into a freshly allocated `out`. */
 BOOL glass_blurred_copy(const RgBitmap *src, float radius, RgBitmap *out);
 
+/* Same result at half the cost: downsample, blur, bilinear upscale. */
+BOOL glass_blur_half(const RgBitmap *src, float radius, RgBitmap *out);
+
+/* Windows to hide from OUR OWN screen grabs.  Register the widget as 0 and
+ * the menu as 1 right after CreateWindowExW; pass NULL on destruction. */
+void glass_set_capture_hwnd(int which, HWND hwnd);
+
+/* Remember the widget's / menu's window rect for the fallback reconstruction.
+ * Call after every move/resize; pass w=0 when the menu closes. */
+void glass_set_widget_rect(int x, int y, int w, int h);
+void glass_set_menu_rect(int x, int y, int w, int h);
+
+/* TRUE when the layered windows are capture-visible (WDA_NONE).  With WDA
+ * exclusion on, no reconstruction is needed and the real desktop is kept. */
+void glass_set_capture_visible(BOOL on);
+
 /* Copies the top-left w x h of `src` into `out`. */
 BOOL glass_crop(const RgBitmap *src, int w, int h, RgBitmap *out);
 

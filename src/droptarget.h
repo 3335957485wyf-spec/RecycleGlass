@@ -5,7 +5,9 @@
 
 #include "common.h"
 
-typedef void (*RgDropEnterFn)(void);
+/* count/bytes describe what is being dragged, so the card can preview
+ * the drop instead of only washing its background. */
+typedef void (*RgDropEnterFn)(int count, unsigned long long bytes, int has_folder);
 typedef void (*RgDropLeaveFn)(void);
 typedef void (*RgDropFilesFn)(wchar_t **paths, int n);
 

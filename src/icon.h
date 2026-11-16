@@ -27,6 +27,10 @@ typedef enum {
     IC_LAYERS,
     IC_WIND,
     IC_MAXIMIZE,
+    IC_GEM,
+    IC_IMAGE,
+    IC_TRIANGLE,
+    IC_CAMERA,
     IC_COUNT
 } RgIcon;
 

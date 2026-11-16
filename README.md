@@ -9,9 +9,9 @@
 [官网与下载](https://3335957485wyf-spec.github.io/RecycleGlass/) · [更新日志](CHANGELOG.md)
 
 ![Platform](https://img.shields.io/badge/Windows-10%202004%2B%20%7C%2011-0078D6)
-![Version](https://img.shields.io/badge/version-4.0.0-6E8BFF)
+![Version](https://img.shields.io/badge/version-4.11.1-6E8BFF)
 ![Language](https://img.shields.io/badge/language-C-555555)
-![Size](https://img.shields.io/badge/exe-0.83%20MB-8A8F98)
+![Size](https://img.shields.io/badge/exe-0.98%20MB%20%C2%B7%20MiSans%20included-8A8F98)
 ![License](https://img.shields.io/badge/license-MIT-3DA639)
 ![Website](https://img.shields.io/badge/website-3335957485wyf--spec.github.io%2FRecycleGlass-9AA6FF)
 ![Build](https://github.com/3335957485wyf-spec/RecycleGlass/actions/workflows/build.yml/badge.svg)

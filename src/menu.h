@@ -15,9 +15,9 @@ typedef struct {
     Config *cfg;
     void  (*on_command)(int cmd);
     void  (*on_set)(int id, float value);   /* RG_SET_* slider callbacks */
-    /* Called while a slider is being dragged: update the value but skip the
-     * expensive card repaint - the menu repaints itself anyway, and the card is
-     * behind it.  on_set() runs once when the drag ends. */
+    /* Called while a slider is being dragged with a continuous (unquantised)
+     * value; the host repaints the card at the display refresh rate so both
+     * windows follow the knob.  on_set() runs once when the drag ends. */
     void  (*on_preview)(int id, float value);
     int     count;    /* recycle bin item count, drives "Empty" enabled state */
     long long size;   /* total bytes, shown in the empty confirmation */
@@ -37,5 +37,8 @@ void menu_data_changed(void);
 void menu_hide(void);
 BOOL menu_visible(void);
 void menu_shutdown(void);
+/* Re-apply WDA on the menu window after the "visible in screenshots"
+ * toggle changes (the card and the menu must agree). */
+void menu_sync_capture(void);
 
 #endif /* RG_MENU_H */

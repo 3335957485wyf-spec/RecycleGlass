@@ -43,6 +43,13 @@ typedef struct {
     int             has_fx;
     float           fx_t;       /* 0..1 ripple */
     int             dark;
+    int             glass_style; /* 0 Crystal, 1 Aurora, 2 Mist */
+    int             accent;      /* 0 ice, 1 iris, 2 mint, 3 amber */
+    float           corner_radius; /* 12..44 reference-DPI px; 0 = default */
+    float           refraction;  /* 0..1 Crystal refraction / dispersion */
+    int             icon_style;  /* 0 accent-tinted chip, 1 original chip */
+    float           light_phase; /* 0..1 Aurora light orbit */
+    float           press;       /* 0..1 restrained press feedback */
 } RgRenderState;
 
 void  render_init(HINSTANCE inst);
@@ -50,11 +57,19 @@ void  render_shutdown(void);
 
 void  render_set_scale(float s);
 float render_scale(void);
+/* The single UI typeface family (bundled MiSans, or the platform fallback).
+ * The returned pointer stays valid for the whole process. */
+GpFontFamily *render_app_family(void);
 int   render_win_w(void);
 int   render_win_h(void);
 int   render_card_w(void);
 int   render_card_h(void);
 int   render_pad(void);
+int   render_refract_pad(void);
+
+/* A themed copy of the app mark for the tray / window icon.  The caller owns
+ * the HICON and must DestroyIcon() it. */
+HICON render_make_icon(int accent, int dark, int size);
 
 BOOL  render_surface_resize(RgSurface *s, int w, int h);
 void  render_surface_free(RgSurface *s);
@@ -65,30 +80,42 @@ void  render_card(RgSurface *s, const RgRenderState *st);
  * menu) can match the widget instead of hard-coding a second theme. */
 typedef struct {
     ARGB text, dim, accent, accent_soft, border;
+    ARGB accent_alt, accent_alt_soft;
     ARGB hover_bg, track, pill_bg, pill_text, switch_off;
-    /* Saturated fill for the "on" switch track.  accent is deliberately muted
-     * in the dark palette because it doubles as text colour; a switch needs the
-     * full-strength blue to read as "on" at 26 px. */
+    /* Saturated fill for the "on" switch track, resolved from the selected
+     * accent rather than sharing the text colour's dark-theme muting. */
     ARGB switch_on;
 } RgTheme;
 
-void  render_theme(int dark, RgTheme *out);
+void  render_theme(int dark, int accent, RgTheme *out);
+
+/* The gradient pair behind an accent preset.  Menu swatches and the card use
+ * one shared table, so a colour can never mean two slightly different things. */
+void  render_accent_palette(int dark, int accent,
+                            ARGB *from, ARGB *to, ARGB *text);
 
 /* Paints the card material (shadow, blurred backdrop, tint, sheen, rim,
  * border) into an existing surface at an arbitrary box.  Callers must leave
  * shadow_pad() room around (x, y, w, h) and draw their content afterwards. */
+/* `coverage` > 0 pins the surface alpha (0..1) instead of deriving it from
+ * the opacity slider.  Menus pass ~0.96 so the blurred backdrop actually
+ * replaces the sharp desktop; the decorative card passes 0. */
 void  render_glass_panel(RgSurface *s, const RgBitmap *backdrop,
                          int x, int y, int w, int h, int radius,
-                         float opacity, float material, int dark);
+                         float opacity, float material, int dark,
+                         int glass_style, int accent, float refraction,
+                         float coverage);
 int   render_shadow_pad(void);
 
 /* Drops the cached static layer (shadow + glass body + rim + icon + title).
  * Call it when anything that feeds those layers changes. */
 void  render_invalidate(void);
 
-/* Pill hit rectangles in client coordinates, refreshed by render_card(). */
+/* Pill and title-menu hit rectangles in client coordinates, refreshed by
+ * render_card(). */
 extern RECT g_hit_open;
 extern RECT g_hit_empty;
+extern RECT g_hit_menu;
 
 void  render_drop_caches(void);
 
