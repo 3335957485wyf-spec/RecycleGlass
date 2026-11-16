@@ -1061,23 +1061,17 @@ html[data-page="light"] .scene-video{background:linear-gradient(120deg,#ddd6f5,#
   <section class="section" id="whatsnew">
     <div class="wrap">
       <div class="shead rv">
-        <div><p class="tagline">What's new</p><h2>遮挡即不透明，<br>窗口不再透进玻璃</h2></div>
+        <div><p class="tagline">What's new</p><h2>透明度全程有效，<br>体积与空转一并减掉</h2></div>
         <p><a href="https://github.com/3335957485wyf-spec/RecycleGlass/blob/main/CHANGELOG.md" target="_blank" rel="noopener" style="border-bottom:1px solid var(--line2)">完整更新日志 →</a></p>
       </div>
       <div class="logs rv">
-        <div class="log"><div class="v">4.12.2 <span style="font-size:9px;letter-spacing:.08em;padding:2px 7px;border-radius:99px;background:linear-gradient(135deg,var(--a0),var(--a1));color:#fff;margin-left:4px;white-space:nowrap">最新</span></div><div><h4>透明度滑块全程有效 · 磨砂跟随真实背景</h4>
-          <p>未置顶时，只要窗口碰到卡片，本体就被锁死在不透明——滑块怎么调都没反应。
-          现在滑块在任何模式下都有效：卡片下方真的有窗口时，玻璃会自动把那个窗口磨砂进背景
-          （与「总在最前」同一来源），透出的部分与模糊背景同源，锐利文字不再漏出；
-          窗口移走后自动切回桌面采样，切换无感。</p></div></div>
-        <div class="log"><div class="v">4.12.1</div><div><h4>修复透明度条件 · 遮挡即不透明</h4>
-          <p>未置顶且有窗口盖住卡片时，本应把本体烘焙为不透明；但枚举窗口时跳过了最顶层那个——
-          也就是你刚打开、正挡在卡片上的窗口。现在从最顶层逐个检查，遮挡判断如实生效，
-          窗口文字再也不会透过玻璃露出来。其余卡片帧与 4.12.0 逐像素一致。</p></div></div>
-        <div class="log"><div class="v">4.12.0</div><div><h4>零空转 · 体积腰斩 · 悬停修复</h4>
-          <p>画面无变化就跳过整帧合成（空闲重绘 1.4 → 0 帧/秒），回收站改事件驱动 + 退避轮询，
-          空闲 CPU 1.37% → 0.5%；内嵌图标 1920→512px + strip，exe <b>998,744 → 465,920 字节（-53%）</b>，
-          启动 138→132ms；修复菜单悬停跨行串色，卡片帧逐像素完全一致。</p></div></div>
+        <div class="log"><div class="v">4.12.2 <span style="font-size:9px;letter-spacing:.08em;padding:2px 7px;border-radius:99px;background:linear-gradient(135deg,var(--a0),var(--a1));color:#fff;margin-left:4px;white-space:nowrap">最新</span></div><div><h4>透明度全程有效 · 零空转 · 体积减半</h4>
+          <p>未置顶时只要窗口碰到卡片，透明度滑块就失效——现在滑块在任何模式下都有效：
+          卡片下方真的有窗口时，玻璃自动把它磨砂进背景（与「总在最前」同一来源），
+          锐利文字不再漏出；窗口移走后无感切回桌面采样。同时合并 4.12 的全部优化：
+          画面无变化就跳过整帧合成（空闲重绘 1.4 → 0 帧/秒），回收站改事件驱动 + 退避轮询，
+          空闲 CPU 1.37% → 0.5%；exe <b>998,744 → 458,752 字节（约 -54%）</b>，启动 138→132ms；
+          修复菜单悬停跨行串色，卡片帧逐像素一致。</p></div></div>
         <div class="log"><div class="v">4.11.7</div><div><h4>玻璃背景跟上 60 帧</h4>
           <p>抓帧节奏从 120ms（≈8 fps）改为 6ms 节拍，并去掉被合成器锁住的 CAPTUREBLT：
           视频/动画在卡片后面时上屏 55–58 帧/秒；静止时仍退避到 400ms（约 1 帧/秒、CPU≈0）。</p></div></div>
