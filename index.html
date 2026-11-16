@@ -864,19 +864,10 @@ html[data-page="light"] .parts i{background:rgba(90,80,160,.5);box-shadow:0 0 8p
         <p><a href="https://github.com/3335957485wyf-spec/RecycleGlass/blob/main/CHANGELOG.md" target="_blank" rel="noopener" style="border-bottom:1px solid var(--line2)">完整更新日志 →</a></p>
       </div>
       <div class="logs rv">
-        <div class="log"><div class="v">4.11.5</div><div><h4>玻璃里重新有桌面图标</h4>
-          <p>让桌面窗口自己渲染（PrintWindow），壁纸和图标一起进入玻璃，其他软件窗口仍被排除；
-          按事件重建（壁纸/图标数量/显示器），整屏抓取约 30ms，不逐帧。</p></div></div>
-        <div class="log"><div class="v">4.11.4</div><div><h4>只玻璃桌面 + 滑块对齐</h4>
-          <p>卡片不再把后面的窗口糊进玻璃，只采样桌面壁纸（有/无窗口逐像素差异 0.00）；
-          圆角滑块的轨道与分段控件共用同一内容盒，圆环外沿落在端点上，左右偏差 ≤1px。</p></div></div>
-        <div class="log"><div class="v">4.11.3</div><div><h4>文字改成“墨迹居中”</h4>
-          <p>GDI+ 居中的是它自己的行盒，MiSans 的行盒比汉字视觉中心低 0.11em，所以每个标签都偏高 1.5–2px。
-          现在建字体时先把「国」画进临时位图量出墨迹偏差，逐字体缓存并在绘制时补偿——逐像素复测误差 0.00px。</p></div></div>
-        <div class="log"><div class="v">4.11.2</div><div><h4>清空确认不再被裁切</h4>
-          <p>回收站几百项、体积到 400 MB 时，「永久删除 339 项 · 406.20 MB」比确认卡片还宽，
-          旧版右端被切掉。现在按可用宽度自适应：放不下就在「·」处断成两行，图标与文字整体居中；
-          卡片副标题也补了单行省略兜底。</p></div></div>
+        <div class="log"><div class="v">4.11.5</div><div><h4>只玻璃桌面（含图标）· 一批细节修复</h4>
+          <p>卡片改为让桌面窗口自己渲染（PrintWindow）：壁纸与桌面图标一起进入玻璃，其他软件窗口被排除，
+          按事件重建、整屏一次约 30ms。同版合并的修复：圆角滑块与分段控件左右端对齐（≤1px）、
+          全部文字改用「墨迹居中」（偏差 0.00px）、清空确认长文案自动分行不再被裁切。</p></div></div>
         <div class="log"><div class="v">4.11.1</div><div><h4>MiSans 子集嵌入 exe</h4>
           <p>236 字子集双字重以 RCDATA 嵌进程序，0.98 MB 单文件自带字体；渲染与完整字体逐像素一致。</p></div></div>
         <div class="log"><div class="v">4.11.0</div><div><h4>全应用 MiSans + 文字视觉居中</h4>
