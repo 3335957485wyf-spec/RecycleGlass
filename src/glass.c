@@ -398,15 +398,13 @@ static BOOL plane_alloc(Plane *p, int w, int h)
     return TRUE;
 }
 
-/* Bilinear crop of a plane into a full-resolution BGRA bitmap.  Screen
- * coordinates are clamped, so the card can hang off the plane's edge for a
- * frame without reading out of bounds. */
-static BOOL plane_crop(const Plane *p, int x, int y, int w, int h, RgBitmap *out)
+static BOOL plane_crop_src(const BYTE *src, const Plane *p, int x, int y,
+                           int w, int h, RgBitmap *out)
 {
     BYTE *dst;
     int px, py;
 
-    if (!p->valid || !p->px || w <= 0 || h <= 0 || !out)
+    if (!p->valid || !src || w <= 0 || h <= 0 || !out)
         return FALSE;
 
     dst = (BYTE *)malloc((size_t)w * h * 4);
@@ -438,10 +436,10 @@ static BOOL plane_crop(const Plane *p, int x, int y, int w, int h, RgBitmap *out
             if (ix > p->w - 1) { ix = p->w - 1; fx = 0; }
             ix1 = ix + 1 < p->w ? ix + 1 : ix;
 
-            a = p->px + ((size_t)iy * p->w + ix) * 4;
-            b = p->px + ((size_t)iy * p->w + ix1) * 4;
-            c = p->px + ((size_t)iy1 * p->w + ix) * 4;
-            d = p->px + ((size_t)iy1 * p->w + ix1) * 4;
+            a = src + ((size_t)iy * p->w + ix) * 4;
+            b = src + ((size_t)iy * p->w + ix1) * 4;
+            c = src + ((size_t)iy1 * p->w + ix) * 4;
+            d = src + ((size_t)iy1 * p->w + ix1) * 4;
 
             for (k = 0; k < 3; k++)
             {
@@ -457,6 +455,14 @@ static BOOL plane_crop(const Plane *p, int x, int y, int w, int h, RgBitmap *out
     out->h = h;
     out->px = dst;
     return TRUE;
+}
+
+/* Bilinear crop of a plane into a full-resolution BGRA bitmap.  Screen
+ * coordinates are clamped, so the card can hang off the plane's edge for a
+ * frame without reading out of bounds. */
+static BOOL plane_crop(const Plane *p, int x, int y, int w, int h, RgBitmap *out)
+{
+    return plane_crop_src(p->px, p, x, y, w, h, out);
 }
 
 /* --------------------------------------------------- wallpaper plane build */
@@ -792,7 +798,11 @@ static BOOL desk_plane_build(RectI rect)
  * enough that a drag never pays for it. */
 #define WP_RECHECK_MS 2000
 
-static BOOL wp_plane_ready(float radius, int x, int y)
+/* The plane-rebuild half of wp_plane_ready: makes sure g_wpp holds an up to
+ * date raster of the desktop, without touching its blur cache.  Shared with
+ * glass_backdrop_raw(), which must NOT re-blur the plane (it would fight the
+ * radius glass_backdrop() caches and cost a full-plane blur every frame). */
+static BOOL wp_plane_base(int x, int y)
 {
     static ULONGLONG checked_at, built_at;
     ULONGLONG now = GetTickCount64();
@@ -831,6 +841,14 @@ static BOOL wp_plane_ready(float radius, int x, int y)
         items_dirty = FALSE;
         g_wpp.radius = -1.0f;
     }
+
+    return TRUE;
+}
+
+static BOOL wp_plane_ready(float radius, int x, int y)
+{
+    if (!wp_plane_base(x, y))
+        return FALSE;
 
     if (g_wpp.radius != radius && g_wpp.raw)
     {
@@ -873,6 +891,24 @@ BOOL glass_backdrop(int x, int y, int w, int h, float blur_radius, RgBitmap *out
     return plane_crop(&g_wpp, x, y, w, h, out);
 }
 
+/* Sharp twin of glass_backdrop(): the same desktop raster, but unblurred.
+ * The refracting rim samples THIS - a large blur radius flattens the blurred
+ * plane until a bent sample and its straight neighbour are identical, which
+ * read as "no refraction" from about 5 px of blur up.  Real glass bends the
+ * sharp world at its rim; only the interior is frosted. */
+BOOL glass_backdrop_raw(int x, int y, int w, int h, RgBitmap *out)
+{
+    if (w <= 0 || h <= 0 || !out)
+        return FALSE;
+
+    /* Deliberately wp_plane_base: touching the blur cache here would make
+     * every backdrop refill run its blur twice. */
+    if (!wp_plane_base(x + w / 2, y + h / 2))
+        return FALSE;
+
+    return plane_crop_src(g_wpp.raw, &g_wpp, x, y, w, h, out);
+}
+
 /* ------------------------------------------------------------ live capture */
 
 static CRITICAL_SECTION g_live_lock;
@@ -904,17 +940,22 @@ static void live_init(void)
 /* --- clean self-exclusion for OUR OWN grabs --------------------------------
  * "Visible in screenshots" deliberately leaves both layered windows in the
  * DWM desktop surface.  Every screen grab we take for the frosted backdrop
- * would then contain the widget/menu themselves.  Erasing them afterwards
- * with a mirrored / low-pass patch is what produced the faint duplicated
- * icon and text ("拖影") and a menu blur that lingered after the panel closed:
- * a patch is a reconstruction of the very pixels we were trying to remove.
+ * would then contain the widget/menu themselves.
  *
- * Instead, drop WDA_EXCLUDEFROMCAPTURE onto both windows for the few
- * microseconds of BitBlt only, then restore exactly the affinity the user
- * asked for.  The windows stay visible on screen and in the user's own
- * screenshots; our backdrop is the real, untouched desktop.  Measured on
- * Win10/11: SetWindowDisplayAffinity takes effect immediately, no DwmFlush
- * and no extra frame of latency. */
+ * How the grab stays clean WITHOUT touching the affinity per frame:
+ *
+ *   WDA_EXCLUDEFROMCAPTURE parked (default)  -> our windows are invisible to
+ *       BitBlt by themselves; the grab is the untouched desktop.
+ *   WDA_NONE parked ("visible in screenshots") -> the grab contains our
+ *       windows; punch_capture() rebuilds the rects they hid from the
+ *       wallpaper plane.  The result is blurred anyway, so the difference
+ *       between "reconstructed" and "real" pixels vanishes in the frost.
+ *
+ * The old code flipped EXCLUDE on for the microseconds of the BitBlt and
+ * restored it right after.  That reads clean for our own grab, but a screen
+ * recorder runs a continuous capture stream and records every flip: one
+ * frame with the card, one without - a hard regular blink.  The affinity is
+ * now parked once by init_capture() and never touched on this path. */
 static HWND g_cap_hwnd[2];
 static CRITICAL_SECTION g_cap_lock;
 static INIT_ONCE g_cap_once = INIT_ONCE_STATIC_INIT;
@@ -945,9 +986,7 @@ static BOOL capture_rect(int x, int y, int w, int h, BYTE **out_px)
     HGDIOBJ old;
     void *bits = NULL;
     BOOL ok = FALSE;
-    DWORD aff[2] = { 0, 0 };
-    BOOL  have[2] = { FALSE, FALSE };
-    BOOL  clean = TRUE;
+    BOOL excluded = TRUE;
     int i;
 
     if (w <= 0 || h <= 0 || !out_px)
@@ -961,25 +1000,38 @@ static BOOL capture_rect(int x, int y, int w, int h, BYTE **out_px)
         DWORD cur = 0;
         if (!hw || !IsWindow(hw))
             continue;
-        if (!GetWindowDisplayAffinity(hw, &cur))
+        /* Never TOGGLE the affinity here.  A screen recorder keeps a
+         * continuous capture stream (Windows.Graphics.Capture / DXGI), and
+         * every toggle is one recorded frame with the widget missing and the
+         * next with it back - a hard, regular blink of the whole card in the
+         * user's video.  4.12.2 routed "a window slid under the glass" into
+         * this path, which made any recorder running beside the widget flash
+         * at the capture rate.  The affinity is whatever init_capture()
+         * parked it at: if that is already WDA_EXCLUDEFROMCAPTURE the BitBlt
+         * below simply cannot see our windows; if it is WDA_NONE ("visible
+         * in screenshots") the grab contains them and punch_capture erases
+         * the rects afterwards.  Both states are constant during a recording. */
+        if (GetWindowDisplayAffinity(hw, &cur))
         {
-            clean = FALSE;
-            continue;
+            if (cur != 0x00000011)
+                excluded = FALSE;
         }
-        have[i] = TRUE;
-        aff[i] = cur;
-        if (cur != 0x00000011 && !SetWindowDisplayAffinity(hw, 0x00000011))
-            clean = FALSE;
+        else
+            excluded = FALSE;
     }
 
     screen = GetDC(NULL);
     if (!screen)
-        goto done;
+    {
+        LeaveCriticalSection(&g_cap_lock);
+        return FALSE;
+    }
     mem = CreateCompatibleDC(screen);
     if (!mem)
     {
         ReleaseDC(NULL, screen);
-        goto done;
+        LeaveCriticalSection(&g_cap_lock);
+        return FALSE;
     }
 
     memset(&bi, 0, sizeof(bi));
@@ -1010,8 +1062,10 @@ static BOOL capture_rect(int x, int y, int w, int h, BYTE **out_px)
             if (px)
             {
                 memcpy(px, bits, bytes);
-                /* Only if the OS refused to exclude our own windows. */
-                if (!clean)
+                /* Our windows were in the grab (affinity is not EXCLUDE):
+                 * rebuild the rects they hid.  With a clean capture this is
+                 * never called, so the real desktop survives untouched. */
+                if (!excluded)
                     punch_capture(px, w, h, x, y, 0);
                 *out_px = px;
                 ok = TRUE;
@@ -1023,11 +1077,6 @@ static BOOL capture_rect(int x, int y, int w, int h, BYTE **out_px)
 
     DeleteDC(mem);
     ReleaseDC(NULL, screen);
-
-done:
-    for (i = 0; i < 2; i++)
-        if (have[i] && g_cap_hwnd[i])
-            SetWindowDisplayAffinity(g_cap_hwnd[i], aff[i]);
     LeaveCriticalSection(&g_cap_lock);
     return ok;
 }
@@ -1624,6 +1673,24 @@ BOOL glass_live(int x, int y, int w, int h, float blur_radius, RgBitmap *out)
         InterlockedExchange(&g_force, 1);
         SetEvent(g_wake);
     }
+    return hit;
+}
+
+/* Sharp twin of glass_live(): the live tile before the blur.  Deliberately
+ * does NOT check the radius - the raw capture is the same at every blur, so
+ * the refracting rim stays stable while the blur slider is dragged. */
+BOOL glass_live_raw(int x, int y, int w, int h, RgBitmap *out)
+{
+    BOOL hit = FALSE;
+
+    if (w <= 0 || h <= 0 || !out)
+        return FALSE;
+
+    live_init();
+    EnterCriticalSection(&g_live_lock);
+    if (g_ltp.valid && g_ltp.raw)
+        hit = plane_crop_src(g_ltp.raw, &g_ltp, x, y, w, h, out);
+    LeaveCriticalSection(&g_live_lock);
     return hit;
 }
 

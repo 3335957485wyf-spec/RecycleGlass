@@ -24,6 +24,9 @@ typedef struct {
 
 typedef struct {
     const RgBitmap *backdrop;   /* card-sized crop, may be NULL */
+    const RgBitmap *sharp;      /* same crop, unblurred; NULL when absent.
+                                 * The refracting rim samples this so the bend
+                                 * stays visible at large blur radii. */
     int             backdrop_x, backdrop_y;  /* screen origin of that crop */
     /* Identity of the backdrop contents.  The static layer is cached, so this
      * has to take part in the cache key or a live backdrop would never reach
@@ -105,6 +108,7 @@ void  render_accent_palette(int dark, int accent,
  * the opacity slider.  Menus pass ~0.96 so the blurred backdrop actually
  * replaces the sharp desktop; the decorative card passes 0. */
 void  render_glass_panel(RgSurface *s, const RgBitmap *backdrop,
+                         const RgBitmap *sharp,
                          int x, int y, int w, int h, int radius,
                          float opacity, float material, int dark,
                          int glass_style, int accent, float refraction,

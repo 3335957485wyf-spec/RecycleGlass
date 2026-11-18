@@ -19,10 +19,18 @@ typedef struct {
  * then falls back to a flat tint). */
 BOOL glass_backdrop(int x, int y, int w, int h, float blur_radius, RgBitmap *out);
 
+/* Sharp twin of glass_backdrop(): the same desktop raster, unblurred.  The
+ * refracting rim samples this - a large blur radius flattens the blurred
+ * plane until a bent sample equals its straight neighbour ("no refraction"). */
+BOOL glass_backdrop_raw(int x, int y, int w, int h, RgBitmap *out);
+
 /* Captures the desktop behind (x, y, w, h) and blurs it: this is the real
  * "frosted glass over whatever is there" effect.  The caller must have put its
  * own windows out of capture range (WDA_EXCLUDEFROMCAPTURE) first. */
 BOOL glass_live(int x, int y, int w, int h, float blur_radius, RgBitmap *out);
+
+/* Sharp twin of glass_live(): the live tile before the blur, at any radius. */
+BOOL glass_live_raw(int x, int y, int w, int h, RgBitmap *out);
 
 /* Monotonic id of the cached live frame; changes whenever a new capture or a
  * re-blur has landed.  Lets a caller skip repaints that would show the same
@@ -63,7 +71,11 @@ BOOL glass_live_blocking(int x, int y, int w, int h, float blur_radius, RgBitmap
 
 /* Raw screen pixels of one rectangle, unblurred.  The menu keeps its own copy
  * so that dragging the radius slider is a copy plus one Gaussian instead of a
- * second screen grab - and so the two windows never contend for one cache. */
+ * second screen grab - and so the two windows never contend for one cache.
+ * Self-exclusion is stateless: the affinity parked by the caller decides
+ * whether the grab already excludes our windows (WDA_EXCLUDEFROMCAPTURE) or
+ * the caller erases them (punch).  It is never toggled here, so a screen
+ * recorder never sees the widget blink. */
 BOOL glass_capture(int x, int y, int w, int h, RgBitmap *out);
 
 /* Blurs `src` into a freshly allocated `out`. */
