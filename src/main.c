@@ -45,17 +45,6 @@ static LONG      g_backdrop_gen = -1;
 static LONG      g_backdrop_live_gen = -1;
 static unsigned  g_backdrop_serial;
 
-/* Sharp twin of g_backdrop: the same crop, unblurred.  The refracting rim
- * samples it - a large blur radius flattens the blurred plane until a bent
- * sample and a straight one are identical, which read as "no refraction" from
- * about 5 px of blur up.  Kept independent of the blur radius: raw pixels are
- * the same at every blur, so dragging the blur slider never rebuilds this. */
-static RgBitmap  g_sharp;
-static BOOL      g_sharp_valid;
-static int       g_sharp_x, g_sharp_y;
-static BOOL      g_sharp_live;
-static LONG      g_sharp_live_gen = -1;
-
 static long long g_count, g_size;
 static BOOL      g_hover, g_drag_hover;
 static int       g_drag_count;
@@ -478,11 +467,9 @@ static void invalidate_backdrop(void)
 {
     glass_live_invalidate();
     glass_release(&g_backdrop);
-    glass_release(&g_sharp);
     g_backdrop_valid = FALSE;
     g_backdrop_blur = -1.0f;
     g_backdrop_live = FALSE;
-    g_sharp_valid = FALSE;
 }
 
 /* Backdrop source and display affinity.
@@ -673,37 +660,6 @@ static void overlap_follow(void)
          g_live_backdrop ? L"screen" : L"desktop");
 }
 
-/* Sharp twin of the backdrop cache: the same crop, unblurred, for the
- * refracting rim.  Follows position and live generation like the blurred
- * backdrop, but NOT the blur radius - raw pixels do not depend on it, so the
- * rim stays put while the frost thickens. */
-static void ensure_sharp(int bx, int by, int bw, int bh)
-{
-    RgBitmap fresh;
-
-    if (g_sharp_valid &&
-        g_sharp_x == bx && g_sharp_y == by &&
-        g_sharp.w == bw && g_sharp.h == bh &&
-        g_sharp_live == g_live_backdrop &&
-        (!g_live_backdrop || g_sharp_live_gen == glass_live_gen()))
-        return;
-
-    memset(&fresh, 0, sizeof(fresh));
-    if (g_live_backdrop ? glass_live_raw(bx, by, bw, bh, &fresh)
-                        : glass_backdrop_raw(bx, by, bw, bh, &fresh))
-    {
-        glass_release(&g_sharp);
-        g_sharp = fresh;
-        g_sharp_valid = TRUE;
-        g_sharp_x = bx;
-        g_sharp_y = by;
-        g_sharp_live = g_live_backdrop;
-        g_sharp_live_gen = glass_live_gen();
-    }
-    /* On a miss keep the previous sharp frame - the same policy the blurred
-     * backdrop uses while a live capture is in flight. */
-}
-
 static void ensure_backdrop(void)
 {
     RECT r;
@@ -814,7 +770,6 @@ static void ensure_backdrop(void)
             g_backdrop_gen = (LONG)++g_backdrop_serial;
         }
         g_pf.eb_us += now_us() - p2;
-        ensure_sharp(bx, by, bw, bh);
         return;
     }
 
@@ -830,7 +785,6 @@ static void ensure_backdrop(void)
         g_backdrop_live = FALSE;
         g_backdrop_gen = (LONG)++g_backdrop_serial;
     }
-    ensure_sharp(bx, by, bw, bh);
 }
 
 /* ---------------------------------------------------------------- subtitle */
@@ -992,7 +946,6 @@ static void refresh(void)
 
     memset(&st, 0, sizeof(st));
     st.backdrop = g_backdrop_valid ? &g_backdrop : NULL;
-    st.sharp = g_sharp_valid ? &g_sharp : NULL;
     st.backdrop_x = g_backdrop_x;
     st.backdrop_y = g_backdrop_y;
     st.backdrop_gen = (unsigned)g_backdrop_gen;
@@ -1044,7 +997,6 @@ static void refresh(void)
         RECT wr;
 
         cmp.backdrop = st.backdrop ? (const RgBitmap *)(void *)1 : NULL;
-        cmp.sharp = st.sharp ? (const RgBitmap *)(void *)1 : NULL;
         if (g_frame_moves)
             pos = g_frame_pos;
         else if (GetWindowRect(g_hwnd, &wr))
@@ -2871,7 +2823,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
     menu_shutdown();
     render_surface_free(&g_surf);
     glass_release(&g_backdrop);
-    glass_release(&g_sharp);
     render_shutdown();
 
     /* Deliberately skip OleUninitialize()/CRT teardown: if the worker is still

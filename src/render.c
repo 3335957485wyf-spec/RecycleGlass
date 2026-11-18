@@ -1768,7 +1768,6 @@ static int backdrop_channel(const BYTE *src, size_t stride, int w, int h,
 }
 
 static void paint_glass(GpGraphics *g, const RgBitmap *bd,
-                        const RgBitmap *sharp,
                         int x, int y, int w, int h, int radius,
                         float opacity, float material, int drag_hover,
                         const Palette *p, int dark, int glass_style, int accent,
@@ -1854,8 +1853,6 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
         int a1b = accent_b & 0xFF;
         const BYTE *src = NULL;
         size_t src_stride = 0;
-        const BYTE *rsrc = NULL;     /* sharp source for the refracting rim */
-        size_t rstride = 0;
         int px, py;
 
         /* Mist lowers contrast without changing the meaning of the material
@@ -1883,18 +1880,6 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
                 bd_ox = REFR_PAD;
                 bd_oy = REFR_PAD;
             }
-        }
-
-        /* The rim refracts the SHARP world, not the frosted one.  A blur of
-         * ~5 px or more flattens the backdrop until a bent sample and its
-         * straight neighbour are identical, and the refraction disappears
-         * exactly where users look for it.  Apple's rim shows sharp, bent
-         * content under a frosted body - the same split lives here. */
-        if (sharp && sharp->px && bd && src &&
-            sharp->w == bd->w && sharp->h == bd->h)
-        {
-            rsrc = sharp->px;
-            rstride = (size_t)sharp->w * 4;
         }
 
         for (py = 0; py < h; py++)
@@ -1970,22 +1955,13 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
                             nx /= nl;
                             ny /= nl;
                         }
-                        /* The bend samples the sharp plane when one is
-                         * available; the frosted plane remains the fallback
-                         * (and what the interior keeps doing). */
-                        r = backdrop_channel(rsrc ? rsrc : src,
-                                             rsrc ? rstride : src_stride,
-                                             bd_w, bd_h,
+                        r = backdrop_channel(src, src_stride, bd_w, bd_h,
                                              bx + nx * (amount + split),
                                              by + ny * (amount + split), 2);
-                        g = backdrop_channel(rsrc ? rsrc : src,
-                                             rsrc ? rstride : src_stride,
-                                             bd_w, bd_h,
+                        g = backdrop_channel(src, src_stride, bd_w, bd_h,
                                              bx + nx * amount,
                                              by + ny * amount, 1);
-                        b = backdrop_channel(rsrc ? rsrc : src,
-                                             rsrc ? rstride : src_stride,
-                                             bd_w, bd_h,
+                        b = backdrop_channel(src, src_stride, bd_w, bd_h,
                                              bx + nx * (amount - split),
                                              by + ny * (amount - split), 0);
 
@@ -2154,7 +2130,6 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
 }
 
 void render_glass_panel(RgSurface *s, const RgBitmap *backdrop,
-                        const RgBitmap *sharp,
                         int x, int y, int w, int h, int radius,
                         float opacity, float material, int dark,
                         int glass_style, int accent, float refraction,
@@ -2180,7 +2155,7 @@ void render_glass_panel(RgSurface *s, const RgBitmap *backdrop,
     GdipSetPixelOffsetMode(g, PixelOffsetModeHalf);
     GdipSetCompositingMode(g, CompositingModeSourceOver);
 
-    paint_glass(g, backdrop, sharp, x, y, w, h, radius, opacity, material, 0, p,
+    paint_glass(g, backdrop, x, y, w, h, radius, opacity, material, 0, p,
                 dark, glass_style, accent, refraction, coverage);
 
     GdipDeleteGraphics(g);
@@ -2216,9 +2191,9 @@ static void build_static(const RgRenderState *st, GpGraphics *g, const Layout *L
 {
     const Palette *p = st->dark ? &PAL_DARK : &PAL_LIGHT;
 
-    paint_glass(g, st->backdrop, st->sharp, L->ox, L->oy, L->cw, L->ch,
-                L->radius, st->opacity, st->material, st->drag_hover, p,
-                st->dark, st->glass_style, st->accent, st->refraction, 0.0f);
+    paint_glass(g, st->backdrop, L->ox, L->oy, L->cw, L->ch, L->radius,
+                st->opacity, st->material, st->drag_hover, p, st->dark,
+                st->glass_style, st->accent, st->refraction, 0.0f);
 
     /* 4. icon, tinted to the current accent unless the original chip is asked
      * for.  The tray copy is generated from the same bitmap (see

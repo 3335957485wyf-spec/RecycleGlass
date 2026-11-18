@@ -117,7 +117,6 @@ typedef struct {
     int w, h, radius, dark, style, accent;
     int op, mat, refr;
     int bd_valid, bdw, bdh, bdx, bdy, bdq;
-    int sd_valid, sdw, sdh, sdx, sdy;   /* sharp rim source identity */
 } PanelKey;
 
 static PanelKey g_panel_key;
@@ -150,11 +149,6 @@ static int  g_win_x, g_win_y;
 
 static RgBitmap g_bd;
 static BOOL     g_bd_valid;
-
-/* Sharp twin of g_bd for the refracting rim.  The live path reuses g_bd_raw
- * (already an unblurred capture); the wallpaper path crops the raw plane. */
-static RgBitmap g_bd_sharp;
-static BOOL     g_bd_sharp_valid;
 static BOOL     g_live;         /* blur the real desktop behind the panel */
 static int      g_bd_x, g_bd_y, g_bd_q;
 static RgBitmap g_bd_raw;        /* unblurred capture, taller than the panel */
@@ -1401,24 +1395,12 @@ static void ensure_backdrop(void)
             memset(&fresh, 0, sizeof(fresh));
             if (glass_crop(&g_bd_blur, bw, bh, &fresh))
             {
-                RgBitmap sharp;
-
                 glass_release(&g_bd);
                 g_bd = fresh;
                 g_bd_x = bx;
                 g_bd_y = by;
                 g_bd_q = q;
                 g_bd_valid = TRUE;
-
-                /* The rim refracts the sharp world: crop the unblurred capture
-                 * to the panel size and hand it to the renderer. */
-                memset(&sharp, 0, sizeof(sharp));
-                if (glass_crop(&g_bd_raw, bw, bh, &sharp))
-                {
-                    glass_release(&g_bd_sharp);
-                    g_bd_sharp = sharp;
-                    g_bd_sharp_valid = TRUE;
-                }
                 return;
             }
         }
@@ -1429,24 +1411,12 @@ static void ensure_backdrop(void)
     memset(&fresh, 0, sizeof(fresh));
     if (glass_backdrop(bx, by, bw, bh, (float)q, &fresh))
     {
-        RgBitmap sharp;
-
         glass_release(&g_bd);
         g_bd = fresh;
         g_bd_x = bx;
         g_bd_y = by;
         g_bd_q = q;
         g_bd_valid = TRUE;
-
-        memset(&sharp, 0, sizeof(sharp));
-        if (glass_backdrop_raw(bx, by, bw, bh, &sharp))
-        {
-            glass_release(&g_bd_sharp);
-            g_bd_sharp = sharp;
-            g_bd_sharp_valid = TRUE;
-        }
-        else
-            g_bd_sharp_valid = FALSE;
     }
 }
 
@@ -1514,10 +1484,6 @@ static void render_menu(void)
         k.bdw = g_bd.w;  k.bdh = g_bd.h;
         k.bdx = g_bd_x;  k.bdy = g_bd_y;
         k.bdq = g_bd_q;
-        k.sd_valid = g_bd_sharp_valid;
-        k.sdw = g_bd_sharp.w;  k.sdh = g_bd_sharp.h;
-        k.sdx = g_bd_sharp_valid ? g_bd_x : 0;
-        k.sdy = g_bd_sharp_valid ? g_bd_y : 0;
 
         rebuild = !g_panel_valid || g_panel_w != W || g_panel_h != H ||
                   memcmp(&k, &g_panel_key, sizeof(k)) != 0;
@@ -1542,7 +1508,6 @@ static void render_menu(void)
              * enough to read its text on a light panel.  The opacity slider
              * still controls tint density; only the leak is closed. */
             render_glass_panel(&g_surf, g_bd_valid ? &g_bd : NULL,
-                               g_bd_sharp_valid ? &g_bd_sharp : NULL,
                                MARGIN, MARGIN, pw, ph, RADIUS,
                                rg_clampf(0.45f + g_host->cfg->opacity * 0.55f,
                                          0.62f, 1.0f),
@@ -2372,9 +2337,7 @@ void menu_show(int screen_x, int screen_y)
      * raw capture is dropped and re-taken on the first paint. */
     glass_release(&g_bd_raw);
     glass_release(&g_bd_blur);
-    glass_release(&g_bd_sharp);
     g_bd_raw_q = -1;
-    g_bd_sharp_valid = FALSE;
     present(screen_x, screen_y);
 
     /* The panel opens right under the pointer, so the row beneath it never gets
@@ -2474,11 +2437,10 @@ void menu_shutdown(void)
     if (g_fmt_r) { GdipDeleteStringFormat(g_fmt_r); g_fmt_r = NULL; }
     if (g_fmt_c) { GdipDeleteStringFormat(g_fmt_c); g_fmt_c = NULL; }
     glass_release(&g_bd);
-    glass_release(&g_bd_raw);    glass_release(&g_bd_blur);
-    glass_release(&g_bd_sharp);
+    glass_release(&g_bd_raw);
+    glass_release(&g_bd_blur);
     g_bd_raw_q = -1;
     g_bd_valid = FALSE;
-    g_bd_sharp_valid = FALSE;
     render_surface_free(&g_surf);
     free(g_panel_cache);
     g_panel_cache = NULL;
