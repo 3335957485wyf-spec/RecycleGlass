@@ -13,7 +13,6 @@ void config_defaults(Config *c)
     c->material      = 0.55f;
     c->blur_radius   = 24.0f;
     wcscpy_s(c->size, RG_COUNT(c->size), L"normal");
-    wcscpy_s(c->blur_mode, RG_COUNT(c->blur_mode), L"screen");
     wcscpy_s(c->theme, RG_COUNT(c->theme), L"system");
     wcscpy_s(c->glass, RG_COUNT(c->glass), L"crystal");
     wcscpy_s(c->accent, RG_COUNT(c->accent), L"blue");
@@ -21,9 +20,13 @@ void config_defaults(Config *c)
     c->corner_radius = 32.0f;
     c->refraction    = 0.55f;
     c->motion        = 0.70f;
-    c->capture_visible = 1;
+    /* Off by default: WDA_EXCLUDEFROMCAPTURE keeps the widget out of every
+     * capture frame, so the grab needs no self-reconstruction at all.  The
+     * menu turns it back on for users who want the card in their screenshots
+     * (the plate path then reconstructs what it covers). */
     c->auto_dpi      = 0;
     c->topmost       = 0;
+    c->live_idle     = 1;
     wcscpy_s(c->language, RG_COUNT(c->language), L"auto");
     c->autostart     = 0;
     c->confirm_empty = 1;
@@ -53,18 +56,16 @@ static float clamp_f(float v, float dflt, float lo, float hi)
     return v;
 }
 
-static int clamp_i(long long v, int dflt, int lo, int hi)
+static int clamp_i(long long v, int lo, int hi)
 {
     if (v < lo) return lo;
     if (v > hi) return hi;
-    (void)dflt;
     return (int)v;
 }
 
 void config_sanitise(Config *c)
 {
     static const wchar_t *themes[]  = { L"system", L"light", L"dark" };
-    static const wchar_t *blurs[]   = { L"screen", L"wallpaper" };
     static const wchar_t *sizes[]   = { L"small", L"normal", L"large" };
     static const wchar_t *langs[]   = { L"auto", L"zh", L"en" };
     static const wchar_t *glasses[] = { L"crystal", L"aurora", L"mist" };
@@ -74,12 +75,6 @@ void config_sanitise(Config *c)
 
     if (!in_set(c->theme, themes, RG_COUNT(themes)))
         wcscpy_s(c->theme, RG_COUNT(c->theme), L"system");
-
-    /* The desktop/wallpaper toggle is gone: the widget lives on the desktop,
-     * so the backdrop is always the real screen.  Any value still maps to
-     * "screen"; the wallpaper capture code stays but is unreachable. */
-    wcscpy_s(c->blur_mode, RG_COUNT(c->blur_mode), L"screen");
-    (void)blurs;
 
     if (!in_set(c->size, sizes, RG_COUNT(sizes)))
         wcscpy_s(c->size, RG_COUNT(c->size), L"normal");
@@ -94,26 +89,26 @@ void config_sanitise(Config *c)
     if (!in_set(c->icon, icons, RG_COUNT(icons)))
         wcscpy_s(c->icon, RG_COUNT(c->icon), L"accent");
 
-    c->opacity       = clamp_f(c->opacity, 0.60f, 0.30f, 1.0f);
+    c->opacity       = clamp_f(c->opacity, 0.60f, 0.0f, 1.0f);
     c->material      = clamp_f(c->material, 0.55f, 0.0f, 1.0f);
     c->blur_radius   = clamp_f(c->blur_radius, 24.0f, 0.0f, 48.0f);
     c->corner_radius = clamp_f(c->corner_radius, 32.0f, 12.0f, 52.0f);
     c->refraction    = clamp_f(c->refraction, 0.55f, 0.0f, 1.0f);
     c->motion        = clamp_f(c->motion, 0.70f, 0.0f, 1.0f);
 
-    c->x = clamp_i(c->x, -1, -32768, 32768);
-    c->y = clamp_i(c->y, -1, -32768, 32768);
+    c->x = clamp_i(c->x, -32768, 32768);
+    c->y = clamp_i(c->y, -32768, 32768);
 
-    c->width  = clamp_i(c->width, 208, 64, 4096);
-    c->height = clamp_i(c->height, 100, 48, 4096);
+    c->width  = clamp_i(c->width, 64, 4096);
+    c->height = clamp_i(c->height, 48, 4096);
 
     if (c->last_count < 0) c->last_count = 0;
     if (c->last_count > 10000000LL) c->last_count = 10000000LL;
     if (c->last_size < 0) c->last_size = 0;
 
     c->auto_dpi        = c->auto_dpi ? 1 : 0;
-    c->capture_visible = c->capture_visible ? 1 : 0;
     c->topmost       = c->topmost ? 1 : 0;
+    c->live_idle     = c->live_idle ? 1 : 0;
     c->autostart     = c->autostart ? 1 : 0;
     c->confirm_empty = c->confirm_empty ? 1 : 0;
     c->version       = RG_CONFIG_VERSION;
@@ -298,8 +293,10 @@ void config_load(Config *c)
         long long iv;
         double dv;
         int bv;
+        int stored_version = 0;
 
         if (json_int(text, L"version", &iv)) c->version = (int)iv;
+        stored_version = c->version;
         if (json_int(text, L"x", &iv)) c->x = (int)iv;
         if (json_int(text, L"y", &iv)) c->y = (int)iv;
         if (json_double(text, L"opacity", &dv))     c->opacity = (float)dv;
@@ -314,7 +311,6 @@ void config_load(Config *c)
         if (json_int(text, L"last_size", &iv))  c->last_size = iv;
 
         json_str(text, L"size", c->size, RG_COUNT(c->size));
-        json_str(text, L"blur_mode", c->blur_mode, RG_COUNT(c->blur_mode));
         json_str(text, L"theme", c->theme, RG_COUNT(c->theme));
         json_str(text, L"glass", c->glass, RG_COUNT(c->glass));
         json_str(text, L"accent", c->accent, RG_COUNT(c->accent));
@@ -322,16 +318,17 @@ void config_load(Config *c)
         json_str(text, L"language", c->language, RG_COUNT(c->language));
 
         if (json_bool(text, L"auto_dpi", &bv))      c->auto_dpi = bv;
-        if (json_bool(text, L"capture_visible", &bv)) c->capture_visible = bv;
         if (json_bool(text, L"topmost", &bv))       c->topmost = bv;
+        if (json_bool(text, L"live_idle", &bv))     c->live_idle = bv;
         if (json_bool(text, L"autostart", &bv))     c->autostart = bv;
         if (json_bool(text, L"confirm_empty", &bv)) c->confirm_empty = bv;
 
-        /* v3 replaced the "wallpaper" fake with a real capture of whatever is
-         * behind the widget.  Older files are moved over so nobody keeps the
-         * wallpaper backdrop by accident. */
-        if (c->version < 3)
-            wcscpy_s(c->blur_mode, RG_COUNT(c->blur_mode), L"screen");
+        /* v6 widens the refraction slider: the same travel now bends twice as
+         * far, so an existing value is rescaled to keep the look the user set.
+         * Only a drag past the old maximum reaches the new range. */
+        if (stored_version > 0 && stored_version < 6)
+            c->refraction = rg_clampf(c->refraction * 0.75f, 0.0f, 1.0f);
+
         c->version = RG_CONFIG_VERSION;
     }
 
@@ -368,14 +365,13 @@ BOOL config_save(const Config *c)
         L"  \"refraction\": %.3f,\n"
         L"  \"motion\": %.3f,\n"
         L"  \"size\": \"%ls\",\n"
-        L"  \"blur_mode\": \"%ls\",\n"
         L"  \"theme\": \"%ls\",\n"
         L"  \"glass\": \"%ls\",\n"
         L"  \"accent\": \"%ls\",\n"
         L"  \"icon\": \"%ls\",\n"
-        L"  \"capture_visible\": %ls,\n"
         L"  \"auto_dpi\": %ls,\n"
         L"  \"topmost\": %ls,\n"
+        L"  \"live_idle\": %ls,\n"
         L"  \"language\": \"%ls\",\n"
         L"  \"autostart\": %ls,\n"
         L"  \"confirm_empty\": %ls,\n"
@@ -388,10 +384,10 @@ BOOL config_save(const Config *c)
         c->x, c->y,
         c->opacity, c->material, c->blur_radius,
         c->corner_radius, c->refraction, c->motion,
-        c->size, c->blur_mode, c->theme, c->glass, c->accent, c->icon,
-        c->capture_visible ? L"true" : L"false",
+        c->size, c->theme, c->glass, c->accent, c->icon,
         c->auto_dpi ? L"true" : L"false",
         c->topmost ? L"true" : L"false",
+        c->live_idle ? L"true" : L"false",
         c->language,
         c->autostart ? L"true" : L"false",
         c->confirm_empty ? L"true" : L"false",
@@ -431,9 +427,12 @@ BOOL config_save(const Config *c)
     ok = (fwrite(utf8, 1, (size_t)(have - 1), f) == (size_t)(have - 1));
     free(utf8);
 
-    fflush(f);
-    _commit(_fileno(f));
-    fclose(f);
+    if (fflush(f) != 0)
+        ok = FALSE;
+    if (_commit(_fileno(f)) != 0)
+        ok = FALSE;
+    if (fclose(f) != 0)
+        ok = FALSE;
 
     if (ok && MoveFileExW(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
         return TRUE;

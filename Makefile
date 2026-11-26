@@ -7,8 +7,8 @@
 CC      = gcc
 WINDRES = windres
 
-SRC     = src/main.c src/render.c src/glass.c src/shell.c src/config.c \
-          src/i18n.c src/droptarget.c src/menu.c src/icon.c
+SRC     = src/main.c src/render.c src/glass.c src/capture.c src/blur_gpu.c \
+          src/shell.c src/config.c src/i18n.c src/droptarget.c src/menu.c src/icon.c
 OBJ     = $(SRC:src/%.c=build/%.o)
 RES     = build/app.res
 
@@ -18,7 +18,7 @@ CFLAGS  = -O2 -std=gnu11 -Wall -Wextra -Wno-unused-parameter \
           -ffunction-sections -fdata-sections
 LDFLAGS = -municode -mwindows -static-libgcc -Wl,--gc-sections -s
 LIBS    = -lgdiplus -lshell32 -lole32 -loleaut32 -luuid -lshlwapi \
-          -lgdi32 -luser32 -ladvapi32 -lcomdlg32
+          -lgdi32 -luser32 -ladvapi32 -lcomdlg32 -ld3d11 -lwinmm
 
 all: build/RecycleGlass.exe
 

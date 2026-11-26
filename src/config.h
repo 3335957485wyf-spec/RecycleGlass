@@ -10,7 +10,7 @@
 
 #include "common.h"
 
-#define RG_CONFIG_VERSION 4
+#define RG_CONFIG_VERSION 6
 
 typedef struct {
     int   version;
@@ -19,8 +19,6 @@ typedef struct {
     float material;
     float blur_radius;
     wchar_t size[16];      /* small | normal | large */
-    wchar_t blur_mode[16]; /* MENU backdrop only: screen | wallpaper.
-                          * The card always samples the desktop wallpaper. */
     wchar_t theme[16];     /* system | light | dark */
     wchar_t glass[16];     /* crystal | aurora | mist */
     wchar_t accent[16];    /* blue | violet | mint | peach | amber | lime */
@@ -28,9 +26,9 @@ typedef struct {
     float corner_radius;   /* reference-DPI pixels, 12..44 */
     float refraction;      /* 0..1 */
     float motion;          /* 0..1; scales hover/entry animation */
-    int   capture_visible; /* show the widget in screenshots */
     int   auto_dpi;
     int   topmost;         /* keep above normal windows (off by default) */
+    int   live_idle;       /* refresh the backdrop while the card is still */
     wchar_t language[8];   /* auto | zh | en */
     int   autostart;
     int   confirm_empty;

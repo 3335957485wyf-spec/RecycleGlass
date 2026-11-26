@@ -19,11 +19,8 @@ typedef enum {
     S_TOAST_RECYCLED,       /* %lld */
     S_TOAST_NOTHING,
     S_TOAST_EMPTY_DONE,
-    S_TOAST_EMPTYING,
     S_BUSY_EMPTY,           /* %lld seconds */
-    S_BUSY_EMPTY_PROGRESS,  /* %lld items left */
     S_BUSY_RECYCLE,         /* %lld seconds */
-    S_TOAST_RECYCLING,      /* %lld */
     S_TOAST_ALREADY_EMPTY,
     S_TOAST_FAILED,
     S_TOAST_PARTIAL,        /* %lld left */
@@ -33,7 +30,6 @@ typedef enum {
     S_MENU_EMPTY,
     S_MENU_APPEARANCE,
     S_MENU_AUTOSTART,
-    S_MENU_CAPTURE,
     S_MENU_DPI,
     S_MENU_TOPMOST,
     S_MENU_EXIT,
@@ -45,17 +41,12 @@ typedef enum {
     S_SET_BLUR,
     S_SET_THEME,
     S_SET_SIZE,
-    S_SET_BLUR_MODE,
     S_OPT_SYSTEM,
     S_OPT_LIGHT,
     S_OPT_DARK,
     S_OPT_SMALL,
     S_OPT_NORMAL,
     S_OPT_LARGE,
-    S_OPT_NATIVE,
-    S_OPT_WALLPAPER,
-    S_STATUS_EMPTY,
-    S_SETTINGS_TITLE,
     S_MENU_RESET,
     S_MENU_MATERIAL,
     S_SET_GLASS,
@@ -77,11 +68,11 @@ typedef enum {
     S_CONFIRM_ACTION,
     S_TOAST_RESET,
     S_TOAST_BUSY,
+    S_TOAST_AUTOSTART_FAILED,
     S_COUNT
 } RgStr;
 
 void          i18n_set_language(const wchar_t *pref); /* "auto" | "zh" | "en" */
-const wchar_t *i18n_language(void);
 BOOL          i18n_is_cjk(void);
 const wchar_t *T(RgStr id);
 

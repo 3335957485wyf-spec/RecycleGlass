@@ -4,7 +4,7 @@
 
 #include "common.h"
 
-void shell_query(long long *count, long long *size);
+BOOL shell_query(long long *count, long long *size);
 BOOL shell_empty(BOOL confirm);
 void shell_open_bin(void);
 
@@ -13,6 +13,5 @@ void shell_open_bin(void);
 BOOL shell_recycle_paths(wchar_t **paths, int n, wchar_t *message, size_t msgcap);
 
 void shell_format_size(long long n, wchar_t *out, size_t cap);
-void shell_format_count(long long n, wchar_t *out, size_t cap);
 
 #endif /* RG_SHELL_H */

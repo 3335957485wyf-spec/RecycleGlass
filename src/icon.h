@@ -25,7 +25,8 @@ typedef enum {
     IC_MOON,
     IC_DROPLET,
     IC_LAYERS,
-    IC_WIND,
+    IC_WIND,        /* kept for older call sites */
+    IC_ACTIVITY,    /* live / real-time (pulse line) */
     IC_MAXIMIZE,
     IC_GEM,
     IC_IMAGE,
@@ -37,9 +38,5 @@ typedef enum {
 /* Strokes icon `id` centred on (cx, cy) inside a size x size box. */
 void icon_draw(GpGraphics *g, int id, float cx, float cy, float size,
                ARGB color, float stroke);
-
-/* Convenience: draws inside the rect (x, y, size, size). */
-void icon_draw_at(GpGraphics *g, int id, float x, float y, float size,
-                  ARGB color, float stroke);
 
 #endif /* RG_ICON_H */

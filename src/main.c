@@ -4,6 +4,7 @@
 #include "i18n.h"
 #include "render.h"
 #include "glass.h"
+#include "capture.h"
 #include "shell.h"
 #include "droptarget.h"
 #include "menu.h"
@@ -16,6 +17,10 @@
 #define DRAG_THRESHOLD 4
 #define TOAST_MS       2600
 
+#define WM_WTSSESSION_CHANGE_ 0x02B1
+#define WTS_SESSION_LOCK_      0x7
+#define WTS_SESSION_UNLOCK_    0x8
+
 static HINSTANCE g_inst;
 static HWND      g_hwnd;
 static Config    g_cfg;
@@ -23,6 +28,9 @@ static RgSurface g_surf;
 static MenuHost  g_menu_host;
 
 static RgBitmap  g_backdrop;
+/* Unblurred twin of g_backdrop, sampled by the refraction band. */
+static RgBitmap  g_rim;
+static BOOL      g_rim_valid;
 /* Pristine copy of the last real capture.  Sliding must always start from this,
  * otherwise every frame smears the already-smeared image and a fast drag leaves
  * permanent streaks. */
@@ -65,13 +73,43 @@ static float     g_fx_t = 1.0f;
 static BOOL      g_fx_active;
 static ULONGLONG g_fx_t0;
 
+/* While a capture hotkey is being handled the card must hold still: a screen
+ * grab takes ~10 ms, and a window that keeps moving during it is composited at
+ * two or three positions inside that one capture (the same tearing any app
+ * window shows when it is dragged fast and captured mid-flight).  Holding the
+ * card for a third of a second costs nothing when nobody is dragging and makes
+ * "screenshot while moving" produce a clean, single card. */
+/* TRUE while the card has been flipped INTO the capture for a screenshot (see
+ * capture_key_hook).  The backdrop then has to be un-composited, which needs
+ * the translucent body - the same thing capture_body_enter() does for the
+ * always-capturable mode. */
+
 static BOOL      g_dragging, g_btn_down;
+static int       g_down_hit;         /* button armed by WM_LBUTTONDOWN */
 static int       g_drag_last_x, g_drag_last_y;
 static ULONGLONG g_last_frame_us;
 static volatile LONG g_paints;   /* frames actually pushed to the screen */
 static BOOL      g_live_backdrop;   /* blur the real desktop, not the wallpaper */
+/* TRUE while the card is in the capture and therefore must not sample the
+ * screen: a captured backdrop contains the card itself, and the stale copy of
+ * that self-image is what painted a pale second card around the real one.
+ * In this mode the body is "self-lit" - no captured pixels at all - and the
+ * compositor shows the real desktop behind it, on screen and in any grab. */
+static BOOL      g_flat_body;
+/* The capture-visible mode (manual or smart) is active.  Distinct from
+ * g_flat_body, which only says which of the two bodies it is using. */
+static BOOL      g_capture_mode;
 static POINT     g_drag_cursor0, g_drag_win0, g_mouse_down;
+static int       g_drag_land_x, g_drag_land_y;
+static int       g_btn_miss;             /* consecutive "button is up" reads */
+static BOOL      g_drag_hires;           /* timeBeginPeriod(1) is held */
+static HANDLE    g_drag_tq, g_drag_tick_timer;
 static BOOL      g_tracking;
+/* RG_PROF=1: age of the live tile at each drag paint, to answer "how old is
+ * the background the card shows while it moves". */
+static unsigned  g_drag_age_n, g_drag_age_over50;
+static LONG      g_drag_age_sum, g_drag_age_max;
+static LONG      g_drag_f0;
 
 static wchar_t   g_toast[256];
 static ULONGLONG g_toast_until;
@@ -79,6 +117,10 @@ static ULONGLONG g_toast_until;
 static BOOL      g_busy;
 static int       g_busy_kind;       /* 1 = emptying, 2 = recycling */
 static ULONGLONG g_busy_t0;
+/* A shell delete (empty / mass recycle) is walking the folder; querying it
+ * from the poll thread at the same time is both useless and a shell32 race on
+ * large bins. */
+static volatile LONG g_shellop_inflight;
 
 static BOOL      g_running = TRUE;
 static BOOL      g_cfg_dirty;
@@ -191,6 +233,14 @@ typedef struct {
 
 static Prof g_pf;
 
+/* Set by drag_frame() when the pointer held still, so no frame was painted.
+ * prof_frame() must then drop its "previous frame" timestamp instead of
+ * charging the whole pause to the next frame interval: iv used to be the time
+ * between *painted* frames, which is also the time between pointer moves, so a
+ * hand that paused mid-drag logged a 125 ms "stall" on a frame that took 5 ms.
+ * Every version spent time chasing that phantom. */
+static BOOL g_prof_pause;
+
 /* Slider preview state (defined here so ensure_backdrop() can see it). */
 static BOOL      g_preview_active;     /* a slider is being dragged */
 static ULONGLONG g_preview_last_us;    /* last value update of any kind */
@@ -215,7 +265,9 @@ static void prof_flush(void)
 
     if (!path[0])
     {
-        GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
+        DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH)
+            wcscpy_s(base, MAX_PATH, L".");
         swprintf_s(path, MAX_PATH, L"%ls\\%ls\\perf.log", base, RG_APP_NAME);
     }
     f = _wfopen(path, L"a, ccs=UTF-8");
@@ -243,6 +295,8 @@ static void prof_flush(void)
     memset(&g_pf, 0, sizeof(g_pf));
 }
 
+static void diag(const wchar_t *fmt, ...);
+
 static void prof_frame(ULONGLONG bd, ULONGLONG rend, ULONGLONG ulw, ULONGLONG tot)
 {
     static ULONGLONG prev;
@@ -254,8 +308,18 @@ static void prof_frame(ULONGLONG bd, ULONGLONG rend, ULONGLONG ulw, ULONGLONG to
     if (!g_dragging)
     {
         prev = 0;
+        g_prof_pause = FALSE;
         memset(&g_pf, 0, sizeof(g_pf));
         return;
+    }
+
+    /* A pointer that held still breaks the cadence by definition - there was
+     * no frame for the next one to be late for.  Start a fresh interval
+     * instead of recording the pause as a stall. */
+    if (g_prof_pause)
+    {
+        g_prof_pause = FALSE;
+        prev = 0;
     }
 
     now = now_us();
@@ -277,6 +341,15 @@ static void prof_frame(ULONGLONG bd, ULONGLONG rend, ULONGLONG ulw, ULONGLONG to
     g_pf.ulw += ulw;
     if (tot > g_pf.max)
         g_pf.max = tot;
+
+    /* A one-off outlier is invisible in the 90-frame averages: a single 31 ms
+     * frame only moves every column by +0.3 ms, so the aggregates can say
+     * "something was slow" but never "which stage".  Log the split for the
+     * rare frame that actually blew the budget. */
+    if (tot > (ULONGLONG)g_frame_us * 2)
+        diag(L"slow frame: tot=%lluus bd=%lluus rend=%lluus ulw=%lluus",
+             tot, bd, rend, ulw);
+
     if (g_pf.n >= 90)
         prof_flush();
 }
@@ -392,6 +465,16 @@ static float compute_scale(void)
         float f;
         if (g_hwnd)
             dpi = GetDpiForWindow(g_hwnd);
+        else
+        {
+            /* Before the window exists there is no per-window DPI, and
+             * assuming 96 makes the first frame undersized: the follow-up
+             * DPI pass then grows the window around its centre, which nudges
+             * the saved position a little further every launch. */
+            UINT sys = GetDpiForSystem();
+            if (sys)
+                dpi = sys;
+        }
         if (!dpi)
             dpi = 96;
         /* Damped: at 100% nothing changes, but a 150% desktop only grows the
@@ -431,17 +514,29 @@ static void clamp_position(int *x, int *y, int w, int h)
 {
     RECT wa;
     work_area_at(*x + w / 2, *y + h / 2, &wa);
-    *x = rg_clampi(*x, wa.left, wa.right - w);
-    *y = rg_clampi(*y, wa.top, wa.bottom - h);
+
+    /* A work area narrower than the card inverts the clamp range.  rg_clampi()
+     * then answers with lo for values below it and hi for everything else, so
+     * the card lands on one of two spots that depend on where it already was -
+     * an invisible wall that moves with you.  Centre it in that case. */
+    if (wa.right - wa.left < w)
+        *x = wa.left + (wa.right - wa.left - w) / 2;
+    else
+        *x = rg_clampi(*x, wa.left, wa.right - w);
+
+    if (wa.bottom - wa.top < h)
+        *y = wa.top + (wa.bottom - wa.top - h) / 2;
+    else
+        *y = rg_clampi(*y, wa.top, wa.bottom - h);
 }
 
 /* ------------------------------------------------------------ config save */
 
-static void save_cfg(void)
+static BOOL save_cfg(void)
 {
     RECT r;
     if (!g_hwnd || !GetWindowRect(g_hwnd, &r))
-        return;
+        return FALSE;
 
     g_cfg.x = r.left;
     g_cfg.y = r.top;
@@ -450,8 +545,13 @@ static void save_cfg(void)
     g_cfg.last_count = g_count;
     g_cfg.last_size = g_size;
 
-    config_save(&g_cfg);
+    if (!config_save(&g_cfg))
+    {
+        diag(L"config save failed; keeping dirty state for retry");
+        return FALSE;
+    }
     g_cfg_dirty = FALSE;
+    return TRUE;
 }
 
 /* --------------------------------------------------------------- backdrop */
@@ -467,7 +567,9 @@ static void invalidate_backdrop(void)
 {
     glass_live_invalidate();
     glass_release(&g_backdrop);
+    glass_release(&g_rim);
     g_backdrop_valid = FALSE;
+    g_rim_valid = FALSE;
     g_backdrop_blur = -1.0f;
     g_backdrop_live = FALSE;
 }
@@ -476,194 +578,85 @@ static void invalidate_backdrop(void)
  *
  * The source follows what is literally behind the glass:
  *
- *   always on top            -> sample the real screen and frost whatever is
- *                               actually behind the card;
- *   not on top, desktop only -> sample the DESKTOP itself (wallpaper + the
- *                               icons the user arranged); other applications
- *                               never bleed into the glass;
- *   not on top, but a window -> switch to the live screen as well, so the
- *                               window under the glass is frosted by the
- *                               backdrop itself and the translucent body
- *                               never shows sharp text through it.  Without
- *                               this the opacity slider would have to be
- *                               pinned at 1.0 to hide the leak - and the
- *                               slider would stop working (4.12.1 regression).
+ *   always on top     -> sample the real screen and frost whatever is
+ *                        actually behind the card - that is the point of
+ *                        staying on top;
+ *   not on top        -> sample the DESKTOP itself (wallpaper + the icons
+ *                        the user arranged) and NOTHING else.  Application
+ *                        windows never enter the glass: with the card in the
+ *                        normal z-order the user has chosen "be part of the
+ *                        desktop", so the glass shows the desktop layer only
+ *                        (4.14.0: this replaces the old "frost the window
+ *                        underneath" behaviour, which leaked application
+ *                        content into the glass whenever a window sat under
+ *                        the card).
  *
  * The desktop grab is done by the desktop window itself (see glass.c), which
  * is why it can include icons without including windows. */
-static BOOL window_behind_card(void);
+static void refresh(void);
+
+/* The card is capture-visible when the user pinned it there, or while the
+ * Windows screenshot tool owns the foreground.  The latter is transient and
+ * never written to config: normal use stays on the 60 fps excluded path. */
+static BOOL capture_visible_effective(void)
+{
+    /* The card is in every capture, always.  There is no mode to switch and
+     * no instant at which a screenshot can miss it; the pixels it covers are
+     * recovered from the same frame by solving the compositor equation
+     * (glass.c: self_unblend), which is what makes "always capturable" and
+     * "live glass" coexist. */
+    return TRUE;
+}
+
+static void capture_body_enter(void)
+{
+    /* One mode.  The card is never excluded from captures, so a screenshot by
+     * any tool at any instant contains a complete card; and because every
+     * frame is un-composited against the exact surface this process uploaded,
+     * the body still shows the real, moving screen behind it.  The old
+     * trade-off ("excluded => live, capturable => photograph") existed only
+     * because the backdrop used to be remembered instead of solved. */
+    g_flat_body = FALSE;
+    glass_unfreeze_plane();
+    cap_start();
+    cap_set_paused(FALSE);
+    glass_live_pause(FALSE);
+    if (g_hwnd)
+    {
+        SetWindowDisplayAffinity(g_hwnd, 0);        /* WDA_NONE: in every shot */
+        glass_live_set_target(g_hwnd);
+    }
+    g_capture_mode = TRUE;
+    g_live_backdrop = TRUE;
+    glass_set_capture_visible(TRUE);
+    invalidate_backdrop();
+    glass_live_invalidate();
+    diag(L"backdrop=live-unblend capture=always");
+}
 
 static void init_capture(void)
 {
-    BOOL live = (g_cfg.topmost || window_behind_card())
-                && glass_live_available();
-
-    g_live_backdrop = FALSE;
-    glass_set_capture_visible(g_cfg.capture_visible);
-
-    if (!live)
-    {
-        glass_live_pause(TRUE);
-        /* No screen grab at all: the widget only has to honour "visible in
-         * screenshots", so set the affinity that matches the user's choice. */
-        SetWindowDisplayAffinity(g_hwnd, g_cfg.capture_visible
-                                            ? 0          /* WDA_NONE */
-                                            : 0x00000011 /* WDA_EXCLUDEFROMCAPTURE */);
-        diag(L"backdrop=desktop topmost=0 capture_visible=%d",
-             (int)g_cfg.capture_visible);
-        return;
-    }
-
-    glass_live_pause(FALSE);
-
-    /* Always on top: we do grab the screen, so the widget must stay out of its
-     * own backdrop.  glass.c drops WDA_EXCLUDEFROMCAPTURE on both of our
-     * windows for the microseconds of the BitBlt and restores this affinity
-     * right after, which keeps the card visible in the user's screenshots. */
-    if (g_cfg.capture_visible)
-        SetWindowDisplayAffinity(g_hwnd, 0 /* WDA_NONE */);
-    else if (!SetWindowDisplayAffinity(g_hwnd, 0x00000011))
-        return;
-
-    g_live_backdrop = TRUE;
-    diag(L"backdrop=screen topmost=%d behind=%d capture_visible=%d",
-         (int)g_cfg.topmost, (int)(!g_cfg.topmost && window_behind_card()),
-         (int)g_cfg.capture_visible);
+    /* capture_body_enter() owns the mode (there is only one now), the workers
+     * and the affinity; every settings change funnels through here, so keep
+     * this thin and derive the rest from the state it set. */
+    capture_body_enter();
+    glass_set_live_idle(g_cfg.live_idle);
+    g_menu_host.capture_effective = capture_visible_effective();
 }
 
-/* Cloaked UWP shells report visible but paint nothing; the DWM answers that,
- * and it is loaded dynamically so the build needs no extra import library. */
-static BOOL window_cloaked(HWND w)
-{
-    typedef HRESULT (WINAPI *PFN_GETATTR)(HWND, DWORD, PVOID, DWORD);
-    static PFN_GETATTR fn;
-    static BOOL tried;
-    int cloaked = 0;
 
-    if (!tried)
-    {
-        HMODULE m = LoadLibraryW(L"dwmapi.dll");
-        tried = TRUE;
-        if (m)
-            fn = (PFN_GETATTR)(void *)GetProcAddress(m, "DwmGetWindowAttribute");
-    }
-    if (!fn)
-        return FALSE;
-    return fn(w, 14 /* DWMWA_CLOAKED */, &cloaked, sizeof(cloaked)) == 0 && cloaked;
-}
 
-/* Is any other application's window BEHIND the card right now (i.e. lower in
- * the z-order and overlapping it)?
- *
- * The body is translucent (alpha follows the opacity slider), so whatever is
- * literally behind the window - including another app - blends with the glass.
- * Windows ABOVE the card are irrelevant: they simply cover it, and the part
- * they cover is never seen.  Only a window UNDER the glass can bleed through,
- * and when one does, the backdrop switches to the live screen (see
- * overlap_follow) so the frost and the leak show the same content.
- *
- * The list is queried at most a few times a second: enumerating ~20 top-level
- * windows is cheap, but this runs from the render path. */
-static BOOL window_behind_card(void)
-{
-    static ULONGLONG checked_at;
-    static BOOL cached;
-    RECT card;
-    ULONGLONG now = GetTickCount64();
-    BOOL found = FALSE;
-
-    if (checked_at && now - checked_at < 300)
-        return cached;
-
-    checked_at = now;
-    if (!g_hwnd || !GetWindowRect(g_hwnd, &card))
-        return cached = FALSE;
-
-    {
-        HWND w;
-        BOOL below = FALSE;
-        /* Walk the full z-order from the top.  Everything up to (and
-         * excluding) our own window sits ABOVE the card and is skipped - it
-         * covers the card instead of bleeding through it.  The old loop
-         * advanced with GetWindow() before inspecting w, silently skipping
-         * the topmost window; and it also counted windows above the card,
-         * which pinned the body opaque and froze the opacity slider. */
-        for (w = GetTopWindow(NULL); w; w = GetWindow(w, GW_HWNDNEXT))
-        {
-            RECT r;
-            wchar_t cls[64];
-
-            if (w == g_hwnd)
-            {
-                below = TRUE;
-                continue;
-            }
-            if (!below)
-                continue;
-            if (!IsWindowVisible(w) || IsIconic(w))
-                continue;
-
-            GetClassNameW(w, cls, RG_COUNT(cls));
-            if (wcscmp(cls, L"Progman") == 0 || wcscmp(cls, L"WorkerW") == 0 ||
-                wcscmp(cls, L"Shell_TrayWnd") == 0 ||
-                wcscmp(cls, L"Shell_SecondaryTrayWnd") == 0)
-                continue;
-
-            /* Cloaked UWP windows are "visible" but show nothing. */
-            if (window_cloaked(w))
-                continue;
-
-            if (!GetWindowRect(w, &r) || r.right <= r.left || r.bottom <= r.top)
-                continue;
-
-            if (r.left < card.right && r.right > card.left &&
-                r.top < card.bottom && r.bottom > card.top)
-            {
-                found = TRUE;
-                break;
-            }
-        }
-    }
-
-    return cached = found;
-}
-
-/* Keep "not on top" sampling in sync with what is behind the card.  While only
- * the desktop is there the backdrop stays the desktop grab; the moment another
- * window slides UNDER the glass, the backdrop switches to the live screen -
- * the same source "always on top" uses - so the frosted backdrop and whatever
- * bleeds through the translucent body are the same pixels.  When the window
- * goes away we switch back to the desktop.  Runs from the render path; both
- * the overlap query and the mode flip are cached, so this is a no-op almost
- * every frame.
- *
- * No invalidate here: ensure_backdrop() skips cached backdrops whose source
- * (g_backdrop_live) no longer matches the active mode, so the flip swaps
- * sources in place - desktop -> screen keeps the old frame until the first
- * live capture lands (no wallpaper flash), screen -> desktop rebuilds the
- * desktop grab in the same frame (no stale frost). */
+/* "Not on top" no longer follows what sits behind the card: the backdrop is
+ * the desktop layer, always (see init_capture).  Kept as a hook so the render
+ * path stays stable; it does nothing today. */
 static void overlap_follow(void)
 {
-    BOOL want;
-
-    if (g_cfg.topmost || !glass_live_available())
-        return;
-
-    want = window_behind_card();
-    if (want == g_live_backdrop)
-        return;
-
-    init_capture();
-    if (g_live_backdrop)
-        glass_live_set_target(g_hwnd);
-    diag(L"overlap_follow: behind=%d -> backdrop=%s", (int)want,
-         g_live_backdrop ? L"screen" : L"desktop");
 }
 
 static void ensure_backdrop(void)
 {
     RECT r;
-    RgBitmap fresh;
+    RgBitmap fresh, fresh_rim;
     int bx, by, bw, bh;
 
     ULONGLONG p0, p1, p2;
@@ -671,11 +664,26 @@ static void ensure_backdrop(void)
     if (!g_hwnd)
         return;
 
+    /* The live tile is the body.  If no grab has landed yet there is nothing
+     * to blur, and the renderer paints the tint-only body for a frame or two -
+     * which composites with the real desktop and so cannot look wrong either. */
+    if (g_flat_body)
+        return;
+
     p0 = now_us();
     if (g_frame_moves)
     {
+        /* The window has not been moved yet, so GetWindowRect would report the
+         * position it is about to leave.  Use the pending one - and fill in
+         * right/bottom as well: glass_set_widget_rect() derives the covered
+         * rect from them, and leaving them uninitialised fed stack garbage
+         * into the plate's punch-out.  When that garbage made the size
+         * negative the rect went invalid, the card's own pixels were learned
+         * into the plate, and the card smeared into the backdrop as it moved. */
         r.left = g_frame_pos.x;
         r.top = g_frame_pos.y;
+        r.right = r.left + render_win_w();
+        r.bottom = r.top + render_win_h();
     }
     else if (!GetWindowRect(g_hwnd, &r))
         return;
@@ -688,8 +696,13 @@ static void ensure_backdrop(void)
     bh = render_card_h();
     {
         /* Capture a margin around the card: the rim refracts the desktop just
-         * outside the glass, not the pixels underneath it. */
-        int rp = render_refract_pad();
+         * outside the glass, not the pixels underneath it.  With refraction
+         * and blur both at zero every sample stays inside the card, so the
+         * margin is pure capture cost - and on hybrid graphics the screen
+         * readback is THE drag-frame cost.  The renderer accepts the smaller
+         * backdrop (bd_ox = 0 convention). */
+        int rp = (g_cfg.refraction > 0.01f || g_cfg.blur_radius > 0.01f)
+                 ? render_refract_pad() : 0;
         bx -= rp;
         by -= rp;
         bw += rp * 2;
@@ -697,13 +710,14 @@ static void ensure_backdrop(void)
     }
 
     p1 = now_us();
-    /* While a slider is dragged the backdrop itself does not change - only the
-     * material drawn on top of it does.  Re-running the full-resolution
-     * wallpaper blur on every step is what stalled the drag; menu_set()
-     * invalidates the cache once when the drag ends. */
+    /* While a slider is dragged the backdrop itself does not change - only
+     * the material drawn on top of it does.  The blur slider is the one
+     * exception: its value IS the backdrop, so a step that changes the
+     * radius must rebuild (from the re-blurred capture, not a fresh grab). */
     if (g_preview_active && g_backdrop_valid &&
         g_backdrop_x == bx && g_backdrop_y == by &&
         g_backdrop.w == bw && g_backdrop.h == bh &&
+        g_backdrop_blur == g_cfg.blur_radius &&
         p1 - g_preview_last_us < 250000)
         return;
 
@@ -729,13 +743,45 @@ static void ensure_backdrop(void)
     g_pf.ee_us += p2 - p1;
 
     memset(&fresh, 0, sizeof(fresh));
+    memset(&fresh_rim, 0, sizeof(fresh_rim));
 
     /* While the live backdrop is on, a miss means "a capture is on its way" -
      * keep painting the previous one instead of flashing the wallpaper. */
     if (g_live_backdrop)
     {
         ULONGLONG l0 = now_us();
-        BOOL lhit = glass_live(bx, by, bw, bh, g_cfg.blur_radius, &fresh);
+        BOOL lhit = FALSE;
+        BOOL have_rim = FALSE;
+
+        /* Drag / move frames take the frame-exact path: a synchronous grab of
+         * the exact rect on this thread.  The worker tile is always at least
+         * one round-trip old - at drag speed that lag is the "camera jelly" -
+         * and a crop miss used to re-pin the previous bitmap to the new
+         * position, so the desktop appeared to swim with the card.  With the
+         * grab folded into the frame that is about to be uploaded, the
+         * backdrop is the screen as it is right now, every frame. */
+        if (g_dragging || g_frame_moves)
+        {
+            lhit = glass_drag_backdrop(bx, by, bw, bh, g_cfg.blur_radius,
+                                       &fresh, &fresh_rim);
+            if (lhit)
+                have_rim = fresh_rim.px != NULL;
+        }
+        if (!lhit)
+        {
+            lhit = glass_live(bx, by, bw, bh, g_cfg.blur_radius, &fresh);
+            if (lhit)
+                have_rim = glass_live_rim(bx, by, bw, bh, &fresh_rim);
+        }
+        /* Last resort before the wallpaper fallback: pay the synchronous grab
+         * even on a still frame so the glass never flashes flat wallpaper. */
+        if (!lhit && !g_backdrop_valid)
+        {
+            lhit = glass_drag_backdrop(bx, by, bw, bh, g_cfg.blur_radius,
+                                       &fresh, &fresh_rim);
+            if (lhit)
+                have_rim = fresh_rim.px != NULL;
+        }
         g_pf.live_us += now_us() - l0;
 
         if (lhit)
@@ -743,6 +789,14 @@ static void ensure_backdrop(void)
             g_pf.hit++;
             glass_release(&g_backdrop);
             g_backdrop = fresh;
+            glass_release(&g_rim);
+            if (have_rim)
+            {
+                g_rim = fresh_rim;
+                g_rim_valid = TRUE;
+            }
+            else
+                g_rim_valid = FALSE;
             g_backdrop_valid = TRUE;
             g_backdrop_x = bx;
             g_backdrop_y = by;
@@ -761,7 +815,17 @@ static void ensure_backdrop(void)
             g_pf.wp++;
             /* Nothing captured yet (first frame, or the desktop is not
              * capturable at all): start from the wallpaper. */
+            glass_release(&g_backdrop);
             g_backdrop = fresh;
+            glass_release(&g_rim);
+            memset(&fresh_rim, 0, sizeof(fresh_rim));
+            if (glass_backdrop_rim(bx, by, bw, bh, &fresh_rim))
+            {
+                g_rim = fresh_rim;
+                g_rim_valid = TRUE;
+            }
+            else
+                g_rim_valid = FALSE;
             g_backdrop_valid = TRUE;
             g_backdrop_x = bx;
             g_backdrop_y = by;
@@ -773,18 +837,6 @@ static void ensure_backdrop(void)
         return;
     }
 
-    if (glass_backdrop(bx, by, bw, bh, g_cfg.blur_radius, &fresh))
-    {
-        g_pf.wp++;
-        glass_release(&g_backdrop);
-        g_backdrop = fresh;
-        g_backdrop_valid = TRUE;
-        g_backdrop_x = bx;
-        g_backdrop_y = by;
-        g_backdrop_blur = g_cfg.blur_radius;
-        g_backdrop_live = FALSE;
-        g_backdrop_gen = (LONG)++g_backdrop_serial;
-    }
 }
 
 /* ---------------------------------------------------------------- subtitle */
@@ -863,6 +915,40 @@ static void show_toast_error(const wchar_t *text)
 
 /* Debug aid: the window opts out of screen capture, so PrintWindow and friends
  * return black.  This writes the composited surface itself to a PNG instead. */
+static void dump_bitmap(const RgBitmap *b, const wchar_t *name)
+{
+    GpBitmap *bmp = NULL;
+    CLSID clsid;
+    UINT num = 0, size = 0, i;
+    ImageCodecInfo *info;
+    wchar_t path[MAX_PATH];
+
+    if (!b || !b->px || !b->w || !b->h)
+        return;
+    if (GdipCreateBitmapFromScan0(b->w, b->h, b->w * 4,
+                                  PixelFormat32bppPARGB, (BYTE *)b->px, &bmp) != Ok)
+        return;
+    GdipGetImageEncodersSize(&num, &size);
+    info = size ? (ImageCodecInfo *)malloc(size) : NULL;
+    if (info)
+    {
+        GdipGetImageEncoders(num, size, info);
+        for (i = 0; i < num; i++)
+        {
+            if (wcscmp(info[i].MimeType, L"image/png") == 0)
+            {
+                clsid = info[i].Clsid;
+                GetTempPathW(MAX_PATH, path);
+                wcscat_s(path, MAX_PATH, name);
+                GdipSaveImageToFile((GpImage *)bmp, path, &clsid, NULL);
+                break;
+            }
+        }
+        free(info);
+    }
+    GdipDisposeImage(bmp);
+}
+
 static void dump_frame(void)
 {
     GpBitmap *bmp = NULL;
@@ -900,9 +986,13 @@ static void dump_frame(void)
 
 }
 
+static ULONGLONG g_refresh_us;      /* total time spent inside refresh() */
+static LONG      g_refresh_n;       /* how many refreshes ran */
+
 static void refresh(void)
 {
     RgRenderState st;
+    ULONGLONG rf0 = now_us();
     wchar_t sub[256];
     SIZE size;
     POINT src, dst;
@@ -945,7 +1035,10 @@ static void refresh(void)
         t1 = now_us();
 
     memset(&st, 0, sizeof(st));
-    st.backdrop = g_backdrop_valid ? &g_backdrop : NULL;
+    st.backdrop = (g_backdrop_valid && !g_flat_body) ? &g_backdrop : NULL;
+    st.rim = (st.backdrop && g_rim_valid) ? &g_rim : NULL;
+    st.capture_body = g_flat_body;
+    st.unblend_body = (g_capture_mode && !g_flat_body) ? 1 : 0;
     st.backdrop_x = g_backdrop_x;
     st.backdrop_y = g_backdrop_y;
     st.backdrop_gen = (unsigned)g_backdrop_gen;
@@ -965,7 +1058,9 @@ static void refresh(void)
      * opaque here (4.11.6..4.12.1) silenced the leak but also pinned the
      * slider - the user could not change transparency at all while any window
      * touched the card. */
-    st.opacity = g_cfg.opacity;
+    /* The density axis lives in the material slider now; the body keeps the
+     * full-coverage density that the config used to reach at opacity 1. */
+    st.opacity = 1.0f;
     st.material = g_cfg.material;
     st.drag_hover = g_drag_hover;
     st.has_fx = g_fx_active;
@@ -994,6 +1089,7 @@ static void refresh(void)
         RgRenderState cmp = st;
         unsigned epoch = render_epoch();
         POINT pos = { 0, 0 };
+        BOOL pos_ok = TRUE;
         RECT wr;
 
         cmp.backdrop = st.backdrop ? (const RgBitmap *)(void *)1 : NULL;
@@ -1005,7 +1101,10 @@ static void refresh(void)
             pos.y = wr.top;
         }
         else
+        {
             have_last = FALSE;
+            pos_ok = FALSE;
+        }
 
         if (have_last && !g_frame_moves &&
             epoch == last_epoch &&
@@ -1037,6 +1136,12 @@ static void refresh(void)
     }
 
     InterlockedIncrement(&g_paints);
+    /* Upload and remember the surface as one step.  A grab takes the same
+     * lock and flushes the compositor itself, so the pixels it un-composites
+     * are exactly this upload even when a drag moves the card every frame.
+     * The flush lives on the grab side: paying a vblank here would cap the
+     * drag at one frame per two display refreshes. */
+    glass_frame_begin();
     if (!UpdateLayeredWindow(g_hwnd, NULL, pdst, &size, g_surf.dc, &src, 0,
                              &bf, ULW_ALPHA))
     {
@@ -1046,10 +1151,22 @@ static void refresh(void)
             logged = TRUE;
             diag(L"UpdateLayeredWindow failed err=%lu", GetLastError());
         }
+        glass_set_self_layer(0, NULL, 0, 0, 0, 0);
+        glass_frame_end();
         have_last = FALSE;
     }
     else
     {
+        /* Keep the exact surface screen grabs must un-composite.  Doing this
+         * here (not inside capture_rect) is what removed the per-frame WDA
+         * toggle and the recording blink.  `pos` is the position this frame
+         * was uploaded to, so the layer never lags a drag by one frame. */
+        if (pos_ok)
+            glass_set_self_layer(0, (const BYTE *)g_surf.bits,
+                                 g_surf.w, g_surf.h, pos.x, pos.y);
+        else
+            glass_set_self_layer(0, NULL, 0, 0, 0, 0);
+        glass_frame_end();
         last_st = cmp;
         wcscpy_s(last_sub, RG_COUNT(last_sub), sub);
         last_pos = pos;
@@ -1065,11 +1182,43 @@ static void refresh(void)
         prof_frame(t1 - t0, t2 - t1, t3 - t2, t3 - t0);
     }
     }
+    g_refresh_us += now_us() - rf0;
+    InterlockedIncrement(&g_refresh_n);
 }
 
-/* One drag frame, driven by the mouse stream and capped at the display refresh
- * rate.  A WM_TIMER driven loop was tried first: WM_TIMER is the lowest
- * priority message, so a 1 kHz mouse starves it and the drag falls behind. */
+static void drag_state_reset(void)
+{
+    g_drag_age_n = g_drag_age_over50 = 0;
+    g_drag_age_sum = g_drag_age_max = 0;
+    g_drag_f0 = glass_live_frames();
+    g_btn_miss = 0;
+}
+
+/* One drag frame, driven by the mouse stream and sampled again by the drag
+ * tick, capped at the display refresh rate.  A WM_TIMER driven loop was tried
+ * first: WM_TIMER is the lowest priority message, so a 1 kHz mouse starves it
+ * and the drag falls behind.  The tick is not the driver here; it only steps
+ * in when the pointer stream stops.
+ *
+ * The pose is exactly (window anchor + pointer delta): the card is rigidly
+ * attached to the hand.  A velocity lookahead used to place it where the
+ * pointer would be at presentation time; that kept the card ahead of the hand
+ * and walked the lead back whenever the pointer slowed, which the eye reads
+ * as the glass swimming/rubber-banding against the desktop.  The only lag
+ * left is the sampling-to-present delay of a frame or less, which no painter
+ * can remove.
+ *
+ * Slightly oversubscribing the panel is what makes the motion even: when the
+ * frame rate equals the refresh rate, every interval sits on the vblank
+ * boundary and jitter in the frame cost pushes frames across it, so the shown
+ * motion alternates one- and two-refresh steps (an irregular 240/120 Hz beat
+ * that reads as vibration).  Running at ~6/5 of the refresh rate guarantees
+ * every vblank samples a frame that is at most one frame old, which turns
+ * that beat into a steady stream.  DwmFlush was tried for hard vblank sync;
+ * it blocks for hundreds of ms here whenever the desktop is otherwise idle,
+ * so it is not used. */
+#define DRAG_TICK_MS     5
+
 static BOOL drag_frame(void)
 {
     POINT cur;
@@ -1079,19 +1228,40 @@ static BOOL drag_frame(void)
     if (!g_dragging || !g_hwnd)
         return FALSE;
 
+
     now = now_us();
-    if (g_drag_frame_us && now - g_last_frame_us < g_drag_frame_us)
+    if (g_drag_frame_us && now - g_last_frame_us < (ULONGLONG)g_drag_frame_us * 5 / 6)
         return FALSE;
     g_last_frame_us = now;
 
     GetCursorPos(&cur);
+
     tx = g_drag_win0.x + (cur.x - g_drag_cursor0.x);
     ty = g_drag_win0.y + (cur.y - g_drag_cursor0.y);
     if (tx == g_drag_last_x && ty == g_drag_last_y)
+    {
+        /* Nothing to paint.  Tell the profiler the cadence was broken by the
+         * pointer holding still, not by the renderer falling behind - those
+         * are the only two things that can open a gap between frames, and
+         * the aggregate log cannot tell them apart. */
+        g_prof_pause = TRUE;
         return FALSE;
+    }
 
     g_drag_last_x = tx;
     g_drag_last_y = ty;
+
+    if (prof_on())
+    {
+        LONG age = glass_live_age_ms();
+        if (age >= 0)
+        {
+            g_drag_age_n++;
+            g_drag_age_sum += age;
+            if (age > g_drag_age_max) g_drag_age_max = age;
+            if (age > 50) g_drag_age_over50++;
+        }
+    }
 
     g_frame_pos.x = tx;
     g_frame_pos.y = ty;
@@ -1368,6 +1538,7 @@ typedef struct {
 
 static DWORD WINAPI op_thread(LPVOID param)
 {
+    diag(L"op thread tid=%lu", (unsigned long)GetCurrentThreadId());
     OpJob *job = (OpJob *)param;
     BOOL ok = FALSE;
     wchar_t msg[256] = L"";
@@ -1420,6 +1591,7 @@ static void abort_job(OpJob *job)
 {
     g_busy = FALSE;
     g_busy_kind = 0;
+    InterlockedExchange(&g_shellop_inflight, 0);
     KillTimer(g_hwnd, RG_TIMER_BUSY);
     free_job(job);
     show_toast_error(T(S_TOAST_FAILED));
@@ -1449,6 +1621,7 @@ static void start_empty(void)
     g_busy = TRUE;
     g_busy_kind = 1;
     g_busy_t0 = now_ms();
+    InterlockedExchange(&g_shellop_inflight, 1);
     SetTimer(g_hwnd, RG_TIMER_BUSY, 500, NULL);
     refresh();
 
@@ -1516,6 +1689,7 @@ static void start_recycle(wchar_t **paths, int n)
     g_busy = TRUE;
     g_busy_kind = 2;
     g_busy_t0 = now_ms();
+    InterlockedExchange(&g_shellop_inflight, 1);
     SetTimer(g_hwnd, RG_TIMER_BUSY, 500, NULL);
     refresh();
 
@@ -1585,6 +1759,7 @@ static void unwatch_bin(void)
 
 static DWORD WINAPI poll_thread(LPVOID param)
 {
+    diag(L"poll thread tid=%lu", (unsigned long)GetCurrentThreadId());
     long long prev_c = -1, prev_s = -1;
     DWORD wait = POLL_MS;
     int calm = 0;
@@ -1605,8 +1780,18 @@ static DWORD WINAPI poll_thread(LPVOID param)
         if (hit == WAIT_OBJECT_0 + 1)
             break;
 
+        if (InterlockedCompareExchange(&g_shellop_inflight, 0, 0))
+        {
+            wait = POLL_MS;
+            continue;
+        }
+
         urgent = InterlockedExchange(&g_query_urgent, 0) != 0;
-        shell_query(&c, &s);
+        if (!shell_query(&c, &s))
+        {
+            wait = POLL_MS;
+            continue;
+        }
         EnterCriticalSection(&g_lock);
         g_q_count = c;
         g_q_size = s;
@@ -1651,35 +1836,76 @@ static void apply_zorder(void)
 {
     SetWindowPos(g_hwnd, g_cfg.topmost ? HWND_TOPMOST : HWND_NOTOPMOST,
                  0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    /* Re-raising the card puts it at the top of the topmost band, above the
+     * open panel.  Put the panel back: the card's lens would otherwise sample
+     * the panel's stale self-image and show a ghost of it inside the glass. */
+    if (g_cfg.topmost)
+        menu_keep_above();
 }
 
-static void apply_autostart(void)
+#define RG_AUTOSTART_RUN \
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+#define RG_AUTOSTART_APPROVED \
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run"
+#define RG_AUTOSTART_VALUE L"RecycleGlass"
+
+static void autostart_clear_approved(void)
 {
     HKEY key;
-    wchar_t exe[MAX_PATH];
-    wchar_t cmd[MAX_PATH + 8];
-    LONG rc;
 
-    if (RegCreateKeyExW(HKEY_CURRENT_USER,
-                        L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                        0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL) != ERROR_SUCCESS)
-        return;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, RG_AUTOSTART_APPROVED, 0,
+                      KEY_SET_VALUE, &key) == ERROR_SUCCESS)
+    {
+        RegDeleteValueW(key, RG_AUTOSTART_VALUE);
+        RegCloseKey(key);
+    }
+}
+
+static BOOL apply_autostart(void)
+{
+    HKEY key;
+    wchar_t exe[32768];
+    wchar_t cmd[32772];
+    DWORD n;
+    LONG rc;
+    BOOL ok;
+
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, RG_AUTOSTART_RUN, 0, NULL, 0,
+                        KEY_SET_VALUE, NULL, &key, NULL) != ERROR_SUCCESS)
+    {
+        diag(L"autostart: cannot open Run key");
+        return FALSE;
+    }
 
     if (g_cfg.autostart)
     {
-        GetModuleFileNameW(NULL, exe, MAX_PATH);
+        n = GetModuleFileNameW(NULL, exe, RG_COUNT(exe));
+        if (n == 0 || n >= RG_COUNT(exe))
+        {
+            diag(L"autostart: exe path unavailable (%lu)", (unsigned long)n);
+            RegCloseKey(key);
+            return FALSE;
+        }
         swprintf_s(cmd, RG_COUNT(cmd), L"\"%ls\"", exe);
-        rc = RegSetValueExW(key, L"RecycleGlass", 0, REG_SZ,
-                            (const BYTE *)cmd, (DWORD)((wcslen(cmd) + 1) * sizeof(wchar_t)));
+        rc = RegSetValueExW(key, RG_AUTOSTART_VALUE, 0, REG_SZ,
+                            (const BYTE *)cmd,
+                            (DWORD)((wcslen(cmd) + 1) * sizeof(wchar_t)));
+        ok = rc == ERROR_SUCCESS;
+        RegCloseKey(key);
+        /* The Run value can exist and still be disabled: Explorer keeps that
+         * state in StartupApproved.  Clear it when we (re)enable autostart. */
+        if (ok)
+            autostart_clear_approved();
+        diag(L"autostart: enable rc=%ld path=%ls", (long)rc, cmd);
+        return ok;
     }
-    else
-    {
-        rc = RegDeleteValueW(key, L"RecycleGlass");
-        if (rc == ERROR_FILE_NOT_FOUND)
-            rc = ERROR_SUCCESS;
-    }
-    (void)rc;
+
+    rc = RegDeleteValueW(key, RG_AUTOSTART_VALUE);
+    ok = rc == ERROR_SUCCESS || rc == ERROR_FILE_NOT_FOUND;
     RegCloseKey(key);
+    autostart_clear_approved();
+    diag(L"autostart: disable rc=%ld", (long)rc);
+    return ok;
 }
 
 static void handle_command(int cmd)
@@ -1717,21 +1943,16 @@ static void handle_command(int cmd)
 
     case RG_CMD_AUTOSTART:
         g_cfg.autostart = !g_cfg.autostart;
-        apply_autostart();
-        g_cfg_dirty = TRUE;
-        break;
-
-    case RG_CMD_BLUR_SCREEN:
-    case RG_CMD_BLUR_WALLPAPER:
-        wcscpy_s(g_cfg.blur_mode, RG_COUNT(g_cfg.blur_mode),
-                 cmd == RG_CMD_BLUR_WALLPAPER ? L"wallpaper" : L"screen");
-        init_capture();
-        if (g_live_backdrop)
-            glass_live_set_target(g_hwnd);
-        invalidate_backdrop();
-        render_invalidate();
-        refresh();
-        g_cfg_dirty = TRUE;
+        if (!apply_autostart())
+        {
+            g_cfg.autostart = !g_cfg.autostart;
+            show_toast_error(T(S_TOAST_AUTOSTART_FAILED));
+            refresh();
+        }
+        else
+        {
+            g_cfg_dirty = TRUE;
+        }
         break;
 
     case RG_CMD_DPI:
@@ -1792,16 +2013,10 @@ static void handle_command(int cmd)
         break;
 
     case RG_CMD_CAPTURE:
-        g_cfg.capture_visible = !g_cfg.capture_visible;
-        init_capture();
-        menu_sync_capture();   /* the menu window must follow the same switch */
-        if (g_live_backdrop)
-            glass_live_set_target(g_hwnd);
-        glass_live_invalidate();
-        invalidate_backdrop();
-        render_invalidate();
-        refresh();
-        g_cfg_dirty = TRUE;
+    case RG_CMD_SMART_CAPTURE:
+        /* Retired 4.14.13: the card is always capture visible, so both switches
+         * were removed from the menu.  The commands stay accepted (automation
+         * and older configs send them) and do nothing. */
         break;
 
     case RG_CMD_ICON_ACCENT:
@@ -1826,10 +2041,8 @@ static void handle_command(int cmd)
         break;
 
     case RG_CMD_RESET:
-        /* 0.60 under the new coverage map reads the same as 0.78 did under
-         * the old 0.30+0.70 map - a reset must not change how the card looks,
-         * only how the slider reaches that look. */
-        g_cfg.opacity = 0.60f;
+        /* Three sliders, so three values.  The material default sits where a
+         * frosted panel reads clearly on both a page and a wallpaper. */
         g_cfg.material = 0.55f;
         g_cfg.blur_radius = 24.0f;
         g_cfg.corner_radius = 32.0f;
@@ -1925,10 +2138,13 @@ static void menu_preview(int id, float v)
     {
     case RG_SET_BLUR:
         g_cfg.blur_radius = rg_clampf(v, 0.0f, 48.0f);
+        /* Re-blur the remembered capture on the spot: the card must show the
+         * new radius under the knob, not only after the button is released. */
+        glass_live_reblur(g_cfg.blur_radius);
         g_cfg_dirty = TRUE;
         break;
     case RG_SET_OPACITY:
-        g_cfg.opacity = rg_clampf(v, 0.30f, 1.0f);
+        g_cfg.opacity = rg_clampf(v, 0.0f, 1.0f);
         g_cfg_dirty = TRUE;
         break;
     case RG_SET_MATERIAL:
@@ -1965,7 +2181,7 @@ static void menu_set(int id, float v)
     switch (id)
     {
     case RG_SET_OPACITY:
-        g_cfg.opacity = rg_clampf(v, 0.30f, 1.00f);
+        g_cfg.opacity = rg_clampf(v, 0.0f, 1.00f);
         refresh();
         g_cfg_dirty = TRUE;
         break;
@@ -2024,6 +2240,7 @@ static void show_menu(void)
     g_menu_host.size = g_size;
     g_menu_host.dark = is_dark();
     g_menu_host.scale = render_scale();
+    g_menu_host.capture_effective = capture_visible_effective();
 
     menu_show(pt.x, pt.y);
 }
@@ -2109,6 +2326,136 @@ static void snap_into_screen(void)
                      SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
+/* Drag tick plumbing.  A WM_TIMER is the lowest priority message, and the
+ * live backdrop posts work all through a drag, so the tick is a timer queue
+ * timer that only posts: the work still runs on the UI thread, in order with
+ * the mouse messages. */
+static VOID CALLBACK drag_tick_cb(PVOID param, BOOLEAN fired)
+{
+    (void)param;
+    (void)fired;
+    if (g_hwnd)
+        PostMessageW(g_hwnd, RG_WM_DRAG_TICK, 0, 0);
+}
+
+static void drag_tick_stop(void)
+{
+    if (g_drag_tick_timer)
+    {
+        DeleteTimerQueueTimer(g_drag_tq, g_drag_tick_timer, NULL);
+        g_drag_tick_timer = NULL;
+    }
+    if (g_drag_hires)
+    {
+        timeEndPeriod(1);
+        g_drag_hires = FALSE;
+    }
+}
+
+static void drag_tick_start(void)
+{
+    if (!g_drag_tq)
+        g_drag_tq = CreateTimerQueue();
+    if (g_drag_tq && !g_drag_tick_timer)
+        CreateTimerQueueTimer(&g_drag_tick_timer, g_drag_tq, drag_tick_cb, NULL,
+                              DRAG_TICK_MS, DRAG_TICK_MS,
+                              WT_EXECUTEINTIMERTHREAD);
+    if (!g_drag_hires)
+    {
+        timeBeginPeriod(1);
+        g_drag_hires = TRUE;
+    }
+}
+
+/* Final drag frame: the window is at the pointer's true release position and
+ * every per-drag side effect runs once. */
+static void finish_drag_release(void)
+{
+    drag_tick_stop();
+    if (prof_on() && g_drag_age_n)
+        diag(L"drag live: paints=%u builds=%ld age avg=%ld max=%ld over50=%u ms",
+             g_drag_age_n, (long)(glass_live_frames() - g_drag_f0),
+             (long)(g_drag_age_sum / (LONG)g_drag_age_n), (long)g_drag_age_max,
+             g_drag_age_over50);
+    refresh_at(g_drag_land_x, g_drag_land_y);
+    snap_into_screen();
+    invalidate_backdrop();
+    save_cfg();
+    refresh();
+
+    /* One line per drag: where the stroke asked the card to go against where
+     * it actually ended up.  A clamp shows up as land != final, which is the
+     * only way to tell "the stroke was cut short" apart from "the card was
+     * pulled back on release" - the two symptoms look identical on screen. */
+    {
+        RECT fr;
+        if (GetWindowRect(g_hwnd, &fr))
+            diag(L"drag end: land=(%d,%d) final=(%d,%d) size=%dx%d",
+                 g_drag_land_x, g_drag_land_y,
+                 (int)fr.left, (int)fr.top,
+                 (int)(fr.right - fr.left), (int)(fr.bottom - fr.top));
+    }
+}
+
+/* WM_LBUTTONUP (or a capture that vanished with the button still nominally
+ * down): land on the pointer in the same message, with no post-release
+ * motion, and run the release side effects. */
+static void drag_release_to_pointer(void)
+{
+    POINT cur;
+
+    g_dragging = FALSE;
+    GetCursorPos(&cur);
+    g_drag_land_x = g_drag_win0.x + (cur.x - g_drag_cursor0.x);
+    g_drag_land_y = g_drag_win0.y + (cur.y - g_drag_cursor0.y);
+    finish_drag_release();
+}
+
+/* GetAsyncKeyState is the only signal left when a mouse-up was swallowed, but
+ * a single sample of it is not trustworthy: when the foreground window belongs
+ * to a higher-integrity process (a maximised Task Manager, an installer, a game
+ * holding the mouse in raw input) it reads "up" while the button is still held.
+ * One bad sample used to end the drag on the spot, so the card stopped dead a
+ * short way into the stroke and only a click on the desktop revived it - that
+ * click hands the foreground back to an ordinary window and the async state
+ * becomes readable again.  Require a few consecutive misses: 3 ticks at 5 ms is
+ * 15 ms, far shorter than a human release. */
+#define DRAG_BTN_MISS_MAX 3
+
+static void drag_tick(void)
+{
+    if (g_dragging)
+    {
+        /* A swallowed WM_LBUTTONUP (capture taken by another window) would
+         * otherwise keep the tick and the raised timer resolution alive. */
+        if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000))
+        {
+            if (++g_btn_miss < DRAG_BTN_MISS_MAX)
+            {
+                /* The button read is suspect, not the drag: keep following. */
+                drag_frame();
+                return;
+            }
+            diag(L"drag aborted: async button read up %d times in a row at (%d,%d)",
+                 g_btn_miss, g_drag_last_x, g_drag_last_y);
+            g_btn_miss = 0;
+            g_btn_down = FALSE;
+            g_press_target = 0.0f;
+            kick_hover();
+            drag_release_to_pointer();
+        }
+        else
+        {
+            g_btn_miss = 0;
+            drag_frame();
+        }
+    }
+    else
+    {
+        drag_tick_stop();
+    }
+}
+
 static void resize_to_scale(void)
 {
     RECT r;
@@ -2167,6 +2514,7 @@ static void on_op_done(void)
 
     g_busy = FALSE;
     g_busy_kind = 0;
+    InterlockedExchange(&g_shellop_inflight, 0);
     KillTimer(g_hwnd, RG_TIMER_BUSY);
 
     if (msg[0])
@@ -2228,6 +2576,27 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
 
+    case WM_CAPTURECHANGED:
+        /* Another window took the mouse out of our capture.  Our own
+         * ReleaseCapture() also sends this - with lParam 0, from the mouse-up
+         * handler that has already cleaned up - so only a foreign taker acts
+         * here.  Without this case a stolen capture left g_btn_down and
+         * g_dragging set, and the drag only ended when the button-state poll
+         * in drag_tick() finally noticed: the card kept following the cursor
+         * for a while after the user had let go. */
+        if (g_btn_down && (HWND)lp)
+        {
+            diag(L"drag aborted: capture taken by hwnd=%p", (void *)(HWND)lp);
+            g_btn_down = FALSE;
+            g_down_hit = 0;
+            g_btn_miss = 0;
+            g_press_target = 0.0f;
+            kick_hover();
+            if (g_dragging)
+                drag_release_to_pointer();
+        }
+        return 0;
+
     case WM_MOUSEMOVE:
     {
         int x = GET_X_LPARAM(lp);
@@ -2251,19 +2620,18 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                 abs(y - g_mouse_down.y) > DRAG_THRESHOLD)
             {
                 /* The anchors were taken on WM_LBUTTONDOWN; every move is just
-                 * (window + cursor delta). */
+                 * (window + cursor delta).  The hover chrome is left alone: the
+                 * cursor stays on the card for the whole stroke, so dropping it
+                 * here only painted a snap-off that read as a flash. */
                 g_dragging = TRUE;
-                g_hover = FALSE;
-                g_hover_btn = 0;
-                /* Drop the hover animation outright: letting it tick would paint
-                 * twice per frame for the first 160 ms of the drag. */
-                g_hover_t = 0.0f;
-                g_hover_target = 0;
-                g_hover_ticking = FALSE;
-                KillTimer(hwnd, RG_TIMER_HOVER);
 
                 g_drag_last_x = g_drag_last_y = INT_MIN;
                 g_last_frame_us = 0;
+                drag_state_reset();
+                /* The tick only matters when the mouse stream goes quiet: it
+                 * picks up the last few pixels of a stroke whose final moves
+                 * were dropped by the frame cap. */
+                drag_tick_start();
                 drag_frame();
             }
         }
@@ -2342,6 +2710,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         g_mouse_down.y = GET_Y_LPARAM(lp);
         down_hit = pt_in_card(g_mouse_down.x, g_mouse_down.y)
                  ? hit_pill(g_mouse_down.x, g_mouse_down.y) : 0;
+        g_down_hit = down_hit;
         if (down_hit && down_hit != 3)
         {
             g_press_target = 1.0f;
@@ -2366,6 +2735,10 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             g_drag_win0.x = wr.left;
             g_drag_win0.y = wr.top;
         }
+        drag_state_reset();
+        /* A press often becomes a drag within a few ms; start the capture
+         * now so the first frames move over a current desktop. */
+        glass_live_warm();
         return 0;
     }
 
@@ -2374,9 +2747,11 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         int x = GET_X_LPARAM(lp);
         int y = GET_Y_LPARAM(lp);
         int btn;
+        int down_hit = g_down_hit;
 
         ReleaseCapture();
         g_btn_down = FALSE;
+        g_down_hit = 0;
         if (g_press_target != 0.0f || g_press != 0.0f)
         {
             g_press_target = 0.0f;
@@ -2388,31 +2763,23 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
         if (g_dragging)
         {
-            POINT cur;
-            g_dragging = FALSE;
             if (g_pf.n || g_pf.iv_n)
             {
                 prof_flush();
                 memset(&g_pf, 0, sizeof(g_pf));
             }
             /* Land exactly where the pointer is, even if the last move was
-             * rate limited away. */
-            GetCursorPos(&cur);
-            refresh_at(g_drag_win0.x + (cur.x - g_drag_cursor0.x),
-                       g_drag_win0.y + (cur.y - g_drag_cursor0.y));
-            snap_into_screen();
-            invalidate_backdrop();
-            save_cfg();
-            refresh();
+             * dropped by the frame cap. */
+            drag_release_to_pointer();
             return 0;
         }
 
         btn = pt_in_card(x, y) ? hit_pill(x, y) : 0;
-        if (btn == 1)
+        if (btn == down_hit && btn == 1)
             handle_command(RG_CMD_OPEN);
-        else if (btn == 2)
+        else if (btn == down_hit && btn == 2)
             handle_command(RG_CMD_EMPTY);
-        else if (btn == 3)
+        else if (btn == down_hit && btn == 3)
             show_menu();
         return 0;
     }
@@ -2456,10 +2823,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             /* Debounced config flush: slider drags mark the config dirty many
              * times per second, so persist at most once per poll tick. */
             if (g_cfg_dirty)
-            {
-                g_cfg_dirty = FALSE;
                 save_cfg();
-            }
             break;
         }
         case RG_TIMER_HOVER:
@@ -2499,11 +2863,19 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                         LONG cap_us = 0, build_us = 0, builds = 0;
                         glass_live_timings(&cap_us, &build_us, &builds);
                         LONG paints = InterlockedCompareExchange(&g_paints, 0, 0);
-                        diag(L"live fps=%ld paints=%ld/s frames=%ld builds=%ld cap=%ldus",
+                        static LONG snap_last;
+                        LONG snap = cap_frames();
+                        LONG rn = InterlockedExchange(&g_refresh_n, 0);
+                        ULONGLONG ru = g_refresh_us;
+                        g_refresh_us = 0;
+                        diag(L"refresh=%ld/s avg=%ldus | snap=%ld/s live fps=%ld paints=%ld/s frames=%ld builds=%ld cap=%ldus",
+                             (long)rn, rn ? (long)(ru / (ULONGLONG)rn) : 0L,
+                             (long)((snap - snap_last) * 1000 / (long)(t - t_last)),
                              (long)((f - f_last) * 1000 / (long)(t - t_last)),
                              (long)((paints - p_last) * 1000 / (long)(t - t_last)),
                              (long)f, (long)builds, (long)cap_us);
                         p_last = paints;
+                        snap_last = snap;
                     }
                         t_last = t;
                         f_last = f;
@@ -2553,21 +2925,31 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
     case RG_WM_BINWATCH:
     {
-        /* NewDelivery: wParam is a pair of PIDLs we own, lParam the event. */
-        LPITEMIDLIST *pair = (LPITEMIDLIST *)wp;
-        if (pair)
-        {
-            ILFree(pair[0]);
-            ILFree(pair[1]);
-        }
+        /* SHCNRF_NewDelivery: wParam is an opaque lock handle, lParam the
+         * process id.  The PIDLs belong to the shell and are only valid while
+         * the notification is locked; the old code cast wParam to a PIDL pair
+         * and ILFree'd it, corrupting the heap on every notification.  A
+         * large empty fires thousands of them, which is the crash. */
+        LPITEMIDLIST *pidls = NULL;
+        LONG event = 0;
+        HANDLE lock = SHChangeNotification_Lock((HANDLE)(ULONG_PTR)wp,
+                                                (DWORD)lp, &pidls, &event);
+        (void)pidls;
+        (void)event;
+
         /* Emptying a full bin fires a burst of notifications; one query per
-         * 250 ms is plenty, the busy timer keeps the card alive meanwhile. */
-        if (now_ms() - g_last_watch_req >= 250)
+         * 250 ms is plenty, the busy timer keeps the card alive meanwhile.
+         * No query at all while the empty itself is in flight. */
+        if (!InterlockedCompareExchange(&g_shellop_inflight, 0, 0) &&
+            now_ms() - g_last_watch_req >= 250)
         {
             g_last_watch_req = now_ms();
             InterlockedExchange(&g_query_urgent, 1);
             request_query();
         }
+
+        if (lock)
+            SHChangeNotification_Unlock(lock);
         return 0;
     }
 
@@ -2598,8 +2980,19 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         refresh();
         return 0;
 
+    case RG_WM_DRAG_TICK:
+        drag_tick();
+        return 0;
+
     case RG_WM_DUMP:
         dump_frame();
+    case RG_WM_DUMP_BD:
+        dump_bitmap(&g_backdrop, L"rg_backdrop.png");
+        dump_bitmap(&g_rim, L"rg_rim.png");
+        return 0;
+
+    case RG_WM_CMD:
+        handle_command((int)wp);
         return 0;
 
     case WM_SETTINGCHANGE:
@@ -2607,20 +3000,48 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         refresh();
         return 0;
 
+    case WM_WTSSESSION_CHANGE_:
+        if (wp == WTS_SESSION_LOCK_)
+            glass_live_suspend(TRUE);
+        else if (wp == WTS_SESSION_UNLOCK_)
+        {
+            /* The desktop may have changed while we were away. */
+            glass_live_invalidate();
+            glass_live_suspend(FALSE);
+            invalidate_backdrop();
+            refresh();
+        }
+        return 0;
+
     case WM_CLOSE:
         diag(L"WM_CLOSE received");
+        if (g_busy)
+        {
+            g_running = TRUE;
+            show_toast(T(S_TOAST_BUSY));
+            refresh();
+            return 0;
+        }
+        save_cfg();
         g_running = FALSE;
         DestroyWindow(hwnd);
         return 0;
 
     case WM_DESTROY:
         diag(L"WM_DESTROY");
+        glass_set_self_layer(0, NULL, 0, 0, 0, 0);
         KillTimer(hwnd, RG_TIMER_POLL);
         KillTimer(hwnd, RG_TIMER_HOVER);
         KillTimer(hwnd, RG_TIMER_FX);
         KillTimer(hwnd, RG_TIMER_TOAST);
         KillTimer(hwnd, RG_TIMER_BUSY);
         KillTimer(hwnd, RG_TIMER_GLASS);
+        drag_tick_stop();
+        if (g_drag_tq)
+        {
+            DeleteTimerQueueEx(g_drag_tq, NULL);
+            g_drag_tq = NULL;
+        }
         unwatch_bin();
         droptarget_revoke();
         remove_tray();
@@ -2689,7 +3110,6 @@ static BOOL create_window(void)
     if (!g_hwnd)
         return FALSE;
 
-    glass_set_capture_hwnd(0, g_hwnd);
     DragAcceptFiles(g_hwnd, TRUE);
     return TRUE;
 }
@@ -2701,17 +3121,33 @@ static void pulse_existing(void)
         PostMessageW(other, RG_WM_PULSE, 0, 0);
 }
 
+/* Lock notifications without a link dependency: wtsapi32 is loaded on demand.
+ * While the workstation is locked the glass worker has nothing to sample. */
+static void session_notify_init(HWND h)
+{
+    typedef BOOL (WINAPI *PFN_REG)(HWND, DWORD);
+    HMODULE m = LoadLibraryW(L"wtsapi32.dll");
+    PFN_REG fn;
+
+    if (!m)
+        return;
+    fn = (PFN_REG)(void *)GetProcAddress(m, "WTSRegisterSessionNotification");
+    if (fn)
+        fn(h, 0 /* NOTIFY_FOR_THIS_SESSION */);
+}
+
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
 {
     MSG msg;
     HANDLE mutex;
+    BOOL autostart_ok;
 
     (void)prev;
-    (void)cmdline;
     (void)show;
 
     g_inst = inst;
     InitializeCriticalSection(&g_lock);
+    timeBeginPeriod(1);     /* 120 fps backdrop pacing needs a 1 ms tick */
 
 
     /* Per-monitor DPI awareness so layout math uses real pixels. */
@@ -2740,6 +3176,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
     diag(L"start v%ls theme=%ls size=%ls dpi=%d",
          RG_VERSION, g_cfg.theme, g_cfg.size, g_cfg.auto_dpi);
 
+    /* The Run value is written when the menu toggles autostart, but it can be
+     * missing (older build, cleaned registry, moved exe) while the config
+     * still says "on".  Re-assert the config on every launch so login always
+     * starts the exact executable the user is running now. */
+    autostart_ok = apply_autostart();
+
     render_init(inst);
     render_set_scale(compute_scale());
     diag(L"scale=%.3f window=%dx%d", render_scale(), render_win_w(), render_win_h());
@@ -2764,6 +3206,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
 
     g_taskbar_msg = RegisterWindowMessageW(RG_TASKBAR_MSG);
     (void)g_taskbar_msg;
+    session_notify_init(g_hwnd);
 
     OleInitialize(NULL);
     diag(L"drop target=%d", droptarget_register(g_hwnd, on_drag_enter,
@@ -2799,6 +3242,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
         glass_live_set_target(g_hwnd);
     refresh();
     request_query();
+    if (!autostart_ok)
+    {
+        show_toast_error(T(S_TOAST_AUTOSTART_FAILED));
+        refresh();
+    }
 
     while (GetMessageW(&msg, NULL, 0, 0) > 0)
     {
@@ -2811,18 +3259,27 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdline, int show)
         SetEvent(g_stop_evt);
     if (g_poll_thread)
     {
-        WaitForSingleObject(g_poll_thread, 400);
+        DWORD rc = WaitForSingleObject(g_poll_thread, 1000);
         CloseHandle(g_poll_thread);
+        g_poll_thread = NULL;
+        if (rc != WAIT_OBJECT_0)
+        {
+            diag(L"poll thread did not stop; preserving its events until process exit");
+            g_wake = NULL;
+            g_stop_evt = NULL;
+        }
     }
     if (g_wake)
         CloseHandle(g_wake);
     if (g_stop_evt)
         CloseHandle(g_stop_evt);
 
+    cap_stop();
     save_cfg();
     menu_shutdown();
     render_surface_free(&g_surf);
     glass_release(&g_backdrop);
+    glass_release(&g_rim);
     render_shutdown();
 
     /* Deliberately skip OleUninitialize()/CRT teardown: if the worker is still

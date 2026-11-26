@@ -24,13 +24,16 @@ typedef struct {
 
 typedef struct {
     const RgBitmap *backdrop;   /* card-sized crop, may be NULL */
+    /* Unblurred twin of `backdrop` (same size/origin).  The refraction band
+     * samples this so the rim keeps bending real details at any blur radius;
+     * may be NULL (flat fallback, menus). */
+    const RgBitmap *rim;
     int             backdrop_x, backdrop_y;  /* screen origin of that crop */
     /* Identity of the backdrop contents.  The static layer is cached, so this
      * has to take part in the cache key or a live backdrop would never reach
      * the screen - the body would keep whatever frame was painted first. */
     unsigned        backdrop_gen;
     float           blur;       /* blur radius used for the crop */
-    GpImage        *icon;       /* unused, kept for API symmetry */
     const wchar_t  *title;
     const wchar_t  *subtitle;
     int             hover;      /* pointer inside the card */
@@ -44,12 +47,23 @@ typedef struct {
     float           fx_t;       /* 0..1 ripple */
     int             dark;
     int             glass_style; /* 0 Crystal, 1 Aurora, 2 Mist */
-    int             accent;      /* 0 ice, 1 iris, 2 mint, 3 amber */
+    int             accent;      /* index into ACCENT_NAMES: blue violet mint peach amber lime */
     float           corner_radius; /* 12..44 reference-DPI px; 0 = default */
     float           refraction;  /* 0..1 Crystal refraction / dispersion */
     int             icon_style;  /* 0 accent-tinted chip, 1 original chip */
     float           light_phase; /* 0..1 Aurora light orbit */
     float           press;       /* 0..1 restrained press feedback */
+    /* "Screenshot body": the pixels come from a frame frozen before the card
+     * joined the capture (or from nothing at all when no clean frame existed),
+     * so they can never contain the card.  Because a screenshot has to stay
+     * readable over ANY background - a white document, a dark wallpaper - this
+     * body gets a contrast floor the live card does not need. */
+    int             capture_body;
+    /* The card is part of the capture, so the backdrop has to be solved back
+     * out of the composited screen.  That is only possible while the body is
+     * translucent, so the body alpha is capped just below opaque - see
+     * paint_glass(). */
+    int             unblend_body;
 } RgRenderState;
 
 void  render_init(HINSTANCE inst);
@@ -105,6 +119,7 @@ void  render_accent_palette(int dark, int accent,
  * the opacity slider.  Menus pass ~0.96 so the blurred backdrop actually
  * replaces the sharp desktop; the decorative card passes 0. */
 void  render_glass_panel(RgSurface *s, const RgBitmap *backdrop,
+                         const RgBitmap *rim,
                          int x, int y, int w, int h, int radius,
                          float opacity, float material, int dark,
                          int glass_style, int accent, float refraction,

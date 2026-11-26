@@ -8,7 +8,7 @@ if not exist build mkdir build
 
 set CFLAGS=-O2 -std=gnu11 -Wall -Wextra -Wno-unused-parameter -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0A00 -finput-charset=UTF-8 -municode -ffunction-sections -fdata-sections
 
-for %%S in (main render glass shell config i18n droptarget menu icon) do (
+for %%S in (main render glass capture blur_gpu shell config i18n droptarget menu icon) do (
     echo cc %%S.c
     gcc %CFLAGS% -c src\%%S.c -o build\%%S.o || goto :fail
 )
@@ -18,9 +18,10 @@ windres -I src -I res res\app.rc -O coff -o build\app.res || goto :fail
 
 echo link
 gcc -municode -mwindows -static-libgcc -Wl,--gc-sections -s -o build\RecycleGlass.exe ^
-    build\main.o build\render.o build\glass.o build\shell.o build\config.o ^
+    build\main.o build\render.o build\glass.o build\capture.o build\blur_gpu.o ^
+    build\shell.o build\config.o ^
     build\i18n.o build\droptarget.o build\menu.o build\icon.o build\app.res ^
-    -lgdiplus -lshell32 -lole32 -loleaut32 -luuid -lshlwapi -lgdi32 -luser32 -ladvapi32 -lcomdlg32 || goto :fail
+    -lgdiplus -lshell32 -lole32 -loleaut32 -luuid -lshlwapi -lgdi32 -luser32 -ladvapi32 -lcomdlg32 -ld3d11 -lwinmm || goto :fail
 
 echo.
 echo Built build\RecycleGlass.exe

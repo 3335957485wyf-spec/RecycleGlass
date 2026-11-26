@@ -22,6 +22,7 @@ typedef struct {
     int     count;    /* recycle bin item count, drives "Empty" enabled state */
     long long size;   /* total bytes, shown in the empty confirmation */
     int     dark;     /* resolved theme (initial value) */
+    int     capture_effective; /* the card is part of captures right now */
     float   scale;    /* same UI scale as the card (initial value) */
     /* Live queries so the panel follows theme/size changes while it is open. */
     int   (*query_dark)(void);
@@ -35,10 +36,14 @@ void menu_confirm_show(int screen_x, int screen_y);
 /* Call after the item count changes: the prompt quotes it. */
 void menu_data_changed(void);
 void menu_hide(void);
-BOOL menu_visible(void);
 void menu_shutdown(void);
 /* Re-apply WDA on the menu window after the "visible in screenshots"
  * toggle changes (the card and the menu must agree). */
 void menu_sync_capture(void);
+/* Raise the open panel back to the top of the topmost band.  The host calls
+ * this after re-raising the card: SetWindowPos(HWND_TOPMOST) on the card
+ * would otherwise put it over the panel, and the card's lens then samples
+ * the panel's stale self-image. */
+void menu_keep_above(void);
 
 #endif /* RG_MENU_H */

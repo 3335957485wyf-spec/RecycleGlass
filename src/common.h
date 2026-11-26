@@ -36,7 +36,7 @@
 #include <math.h>
 
 #define RG_APP_NAME  L"RecycleGlass"
-#define RG_VERSION   L"4.12.2"
+#define RG_VERSION   L"4.15.10"
 /* Shared squircle exponent: flatter shoulders than a rounded rectangle, with a
  * tighter, more deliberate corner than a circle. */
 #define RG_SQUIRCLE_N 2.0f
@@ -71,7 +71,6 @@ static inline float rg_concentric(float outer_radius, float inset)
 }
 
 #define RG_CLASS     L"RecycleGlassWidgetC"
-#define RG_MENUCLASS L"RecycleGlassMenu"
 #define RG_MUTEX     L"RecycleGlassSingletonC"
 #define RG_TASKBAR_MSG L"TaskbarCreated"
 
@@ -83,6 +82,9 @@ static inline float rg_concentric(float outer_radius, float inset)
 #define RG_WM_REFRESH (WM_APP + 7)  /* a new backdrop capture landed */
 #define RG_WM_DUMP   (WM_APP + 9)   /* write the current frame to %TEMP% */
 #define RG_WM_BINWATCH (WM_APP + 10) /* shell: recycle bin contents changed */
+#define RG_WM_DRAG_TICK (WM_APP + 11) /* drag settle / landing sample */
+#define RG_WM_CMD     (WM_APP + 12) /* handle_command(wparam) - automation hook */
+#define RG_WM_DUMP_BD (WM_APP + 14)  /* write the backdrop tile + rim to %TEMP% */
 
 /* ---- timers ------------------------------------------------------------- */
 #define RG_TIMER_POLL   1
@@ -91,7 +93,6 @@ static inline float rg_concentric(float outer_radius, float inset)
 #define RG_TIMER_TOAST  4
 #define RG_TIMER_BUSY   5
 #define RG_TIMER_GLASS  6   /* keeps the live backdrop fresh */
-#define RG_TIMER_DRAG   7   /* one frame per display refresh while dragging */
 
 /* ---- menu commands ------------------------------------------------------ */
 #define RG_CMD_OPEN           101
@@ -110,8 +111,6 @@ static inline float rg_concentric(float outer_radius, float inset)
 #define RG_CMD_BLUR_BASE      130   /* + index into g_blur_steps */
 #define RG_CMD_OPACITY_BASE   140   /* + index into g_opacity_steps */
 #define RG_CMD_MATERIAL_BASE  150   /* + index into g_material_steps */
-#define RG_CMD_BLUR_SCREEN    161   /* blur the real desktop (hidden in screenshots) */
-#define RG_CMD_BLUR_WALLPAPER 162   /* blur the wallpaper (visible in screenshots) */
 #define RG_CMD_RESET          160
 #define RG_SET_OPACITY        170   /* continuous slider values */
 #define RG_SET_MATERIAL       171
@@ -125,6 +124,7 @@ static inline float rg_concentric(float outer_radius, float inset)
 #define RG_CMD_ACCENT_BASE    190   /* + accent index: blue violet mint peach amber lime */
 #define RG_CMD_ICON_ACCENT    200   /* app mark follows the accent */
 #define RG_CMD_CAPTURE        202   /* show the widget in screenshots */
+#define RG_CMD_SMART_CAPTURE  204   /* visible only while screenshot tool is foreground */
 #define RG_CMD_ICON_CLASSIC   201   /* original blue chip */
 
 /* ---- small helpers ------------------------------------------------------ */

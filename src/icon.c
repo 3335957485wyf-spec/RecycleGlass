@@ -64,6 +64,10 @@ static const char *const ICON_PATH[IC_COUNT] = {
     "M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2M9.6 4.6A2 2 0 1 1 11 8H2M12.6 19.4A2 2 0 1 "
     "0 14 16H2",
 
+    /* IC_ACTIVITY - Lucide "activity": a pulse line, the standard "live /
+     * real-time" glyph, which is what the live-background switch controls. */
+    "M22 12h-4l-3 9L9 3l-3 9H2",
+
     /* IC_MAXIMIZE */
     "M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 "
     "21h3a2 2 0 0 0 2-2v-3",
@@ -457,10 +461,4 @@ void icon_draw(GpGraphics *g, int id, float cx, float cy, float size,
     }
 
     GdipDeletePath(path);
-}
-
-void icon_draw_at(GpGraphics *g, int id, float x, float y, float size,
-                  ARGB color, float stroke)
-{
-    icon_draw(g, id, x + size * 0.5f, y + size * 0.5f, size, color, stroke);
 }

@@ -76,12 +76,13 @@ static void anim_to(Anim *a, float to, int dur)
     a->active = TRUE;
 }
 
-/* Ease-out cubic: fast start, soft landing. */
+/* Quintic ease-out: leaves the gate quickly, then bleeds its speed off over a
+ * long tail.  Compared with the old cubic it starts with more authority and
+ * lands with less visible deceleration - the "优雅的曲线速率" hover. */
 static float anim_ease(float t)
 {
-    float k = rg_clampf(t, 0.0f, 1.0f);
-    k = 1.0f - k;
-    return 1.0f - k * k * k;
+    float k = 1.0f - rg_clampf(t, 0.0f, 1.0f);
+    return 1.0f - k * k * k * k * k;
 }
 
 static BOOL anim_step(Anim *a)
@@ -168,6 +169,12 @@ static int  g_confirm_hover;    /* 0 none, 1 cancel, 2 empty */
 
 static int  PAD, ROW_H, SEP_H, RADIUS, FS, PANEL_W, ICON_SZ, SLIDER_H,
             SEG_H, CONFIRM_EXTRA, MARGIN, ROW_R;
+/* One vertical rhythm for every row type: a label band of LINE_H with the
+ * same air above and below, and the control (track / knob) laid out from the
+ * bottom with that same air.  Before this, slider labels sat at 5 px and
+ * segment labels at 6 px while their tracks ended 18 px above the row edge -
+ * the "间距不匀称" the user saw. */
+static int  LINE_H, ROW_AIR, GAP_H, KNOB_D, TRACK_H;
 /* The golden spacing scale.  U0 is the panel -> content inset; U1 is the one
  * gap used between every pair of elements; U2 / U3 are its phi recessions for
  * small optical insets. */
@@ -227,10 +234,19 @@ static void relayout(void)
     FS            = sc(16, 12);
     PANEL_W       = sc(308, 208);
     ICON_SZ       = sc(19, 14);
-    SLIDER_H      = sc(60, 42);
-    SEG_H         = sc(76, 54);
-    CONFIRM_EXTRA = sc(62, 42);
     MARGIN        = render_shadow_pad();
+
+    /* Shared row rhythm (see the statics above).  The taller rows are the
+     * label band plus their control plus the same air top and bottom, so a
+     * slider / picker never sits visually higher or lower than a plain row. */
+    LINE_H        = sc(22, 15);
+    ROW_AIR       = (ROW_H - LINE_H) / 2;
+    GAP_H         = sc(4, 3);
+    KNOB_D        = sc(14, 10);
+    TRACK_H       = sc(30, 21);
+    SLIDER_H      = ROW_AIR * 2 + LINE_H + GAP_H + KNOB_D;
+    SEG_H         = ROW_AIR * 2 + LINE_H + GAP_H + TRACK_H;
+    CONFIRM_EXTRA = sc(62, 42);
 
     /* Concentric: content inset by U0 -> radius R - U0 = R / phi^2 = U1.
      * Clamped to half a row so a normal row never turns into a capsule.
@@ -344,12 +360,12 @@ static void build_rows(void)
 
         r = add(ROW_TOGGLE, RG_CMD_TOPMOST, T(S_MENU_TOPMOST), IC_PIN);
         r->checked = g_host->cfg->topmost;
-
         r = add(ROW_TOGGLE, RG_CMD_AUTOSTART, T(S_MENU_AUTOSTART), IC_POWER);
         r->checked = g_host->cfg->autostart;
 
-        r = add(ROW_TOGGLE, RG_CMD_CAPTURE, T(S_MENU_CAPTURE), IC_CAMERA);
-        r->checked = g_host->cfg->capture_visible;
+        /* No "visible in screenshots" switch any more: the card is always in
+         * the capture (see capture_body_enter in main.c).  A switch that can
+         * only be on is not a switch. */
 
         r = add(ROW_TOGGLE, RG_CMD_DPI, T(S_MENU_DPI), IC_MONITOR);
         r->checked = g_host->cfg->auto_dpi;
@@ -445,12 +461,16 @@ static void build_rows(void)
 
         add(ROW_SEP, 0, NULL, -1);
 
-        r = add(ROW_SLIDER, RG_SET_OPACITY, T(S_SET_OPACITY), IC_DROPLET);
-        r->vmin = 0.30f;
-        r->vmax = 1.00f;
-        r->v = rg_clampf(g_host->cfg->opacity, r->vmin, r->vmax);
-        r->percent = 1;
-
+        /* Three sliders, three physical axes: how much the glass scatters
+         * (blur), how much colour it absorbs (material), how far it bends
+         * what is behind it (refraction).
+         *
+         * The old "透明度" slider is gone.  It was not transparency - the body
+         * alpha is fixed at 0.906 so the capture can be un-composited - it
+         * scaled the same tint the material slider already scaled, so the two
+         * knobs moved the card along one axis.  Measured over a grid: full
+         * travel of either moved the body by 10-13 levels in the same
+         * direction, and on a light page neither moved it at all. */
         r = add(ROW_SLIDER, RG_SET_MATERIAL, T(S_SET_MATERIAL), IC_LAYERS);
         r->vmin = 0.00f;
         r->vmax = 1.00f;
@@ -498,6 +518,20 @@ static ARGB fade(ARGB c, float k)
 {
     int a = (int)((float)((c >> 24) & 0xFF) * rg_clampf(k, 0.0f, 1.0f));
     return (c & 0x00FFFFFF) | ((ARGB)a << 24);
+}
+
+/* Straight RGB blend, alpha of `a` kept.  Used for the hover lift. */
+static ARGB mix_argb(ARGB a, ARGB b, float t)
+{
+    int r, g, bl;
+    t = rg_clampf(t, 0.0f, 1.0f);
+    r  = (int)((float)((a >> 16) & 0xFF) +
+               ((float)((b >> 16) & 0xFF) - (float)((a >> 16) & 0xFF)) * t + 0.5f);
+    g  = (int)((float)((a >> 8) & 0xFF) +
+               ((float)((b >> 8) & 0xFF) - (float)((a >> 8) & 0xFF)) * t + 0.5f);
+    bl = (int)((float)(a & 0xFF) +
+               ((float)(b & 0xFF) - (float)(a & 0xFF)) * t + 0.5f);
+    return (a & 0xFF000000) | ((ARGB)r << 16) | ((ARGB)g << 8) | (ARGB)bl;
 }
 
 static GpPath *round_path_n(float x, float y, float w, float h, float radius,
@@ -823,7 +857,7 @@ static void draw_switch(GpGraphics *g, float x, float y, float w, float h,
 /* The knob's radius, shared by the painter and the drag maths. */
 static float slider_knob_r(void)
 {
-    return (float)sc(7, 5);
+    return (float)KNOB_D * 0.5f;
 }
 
 /* Track geometry: exactly the same content box the segmented pickers use
@@ -891,7 +925,7 @@ static void draw_slider(GpGraphics *g, const Row *r, const RECT *rect,
     slider_bounds(&x0, &x1);
 
     th_h = (float)sc(5, 3);
-    cy = (float)rect->bottom - (float)sc(18, 12);
+    cy = (float)(rect->bottom - ROW_AIR) - slider_knob_r();
     kr = slider_knob_r();
     if (g_drag_slider >= 0 && &g_rows[g_drag_slider] == r)
         kr *= 1.18f;
@@ -947,8 +981,8 @@ static void draw_slider(GpGraphics *g, const Row *r, const RECT *rect,
     }
 
     {
-        float line_y = (float)rect->top + (float)sc(5, 3);
-        float line_h = (float)sc(24, 17);
+        float line_y = (float)rect->top + (float)ROW_AIR;
+        float line_h = (float)LINE_H;
         float tx = (float)(rect->left + U1) + (float)ICON_SZ +
                    (float)U1;
 
@@ -970,13 +1004,13 @@ static void draw_slider(GpGraphics *g, const Row *r, const RECT *rect,
 static void draw_segment(GpGraphics *g, const Row *r, int idx, const RECT *rect,
                          const RgTheme *th, float alpha)
 {
-    float line_y = (float)rect->top + (float)sc(6, 4);
-    float line_h = (float)sc(22, 15);
+    float line_y = (float)rect->top + (float)ROW_AIR;
+    float line_h = (float)LINE_H;
     float tx = (float)(rect->left + U1) + (float)ICON_SZ + (float)U1;
     float tr_x = (float)(rect->left + U1);
     float tr_w = (float)(rect->right - rect->left) - (float)(2 * U1);
-    float tr_h = (float)sc(30, 21);
-    float tr_y = (float)rect->bottom - (float)U2 - tr_h;
+    float tr_h = (float)TRACK_H;
+    float tr_y = (float)(rect->bottom - ROW_AIR) - tr_h;
     float seg_w = tr_w / (float)r->nseg;
     float thumb = g_seg_anim[idx].v;
     /* g_seg_hover is a column index shared by every segment row; without the
@@ -1169,7 +1203,7 @@ static void confirm_buttons(const RECT *rc, RECT *cancel, RECT *ok)
     }
 }
 
-static void draw_confirm(GpGraphics *g, int idx, const RECT *rect,
+static void draw_confirm(GpGraphics *g, const RECT *rect,
                          const RgTheme *th, float alpha)
 {
     float t = confirm_open();
@@ -1339,8 +1373,55 @@ static void draw_confirm(GpGraphics *g, int idx, const RECT *rect,
                   (float)ok.top, bw, bh,
                   fade(rgba(255, 255, 255, 255), alpha * t), g_fmt_c);
     }
+}
 
-    (void)idx;
+/* One grab per session is all the panel ever needs: the raw stays reserved
+ * tall enough for every page it can switch to, so a page slide or the empty
+ * prompt only re-crops it instead of photographing the screen again. */
+static int g_bd_cap_h;
+
+static int backdrop_cap_h(void)
+{
+    int rp = render_refract_pad();
+    int need = rows_height() + rp * 2 + CONFIRM_EXTRA + 8;
+
+    return g_bd_cap_h > need ? g_bd_cap_h : need;
+}
+
+/* Mirrors the grab condition in ensure_backdrop so render_menu() can take the
+ * panel off screen before a recapture that its own surface would pollute. */
+static BOOL backdrop_capture_needed(void)
+{
+    int rp, bx, by, bw;
+
+    if (!g_live)
+        return FALSE;
+    rp = render_refract_pad();
+    bx = g_win_x + MARGIN - rp;
+    by = g_win_y + MARGIN - rp;
+    bw = PANEL_W + rp * 2;
+    return !g_bd_raw.px || g_bd_raw_x != bx || g_bd_raw_y != by ||
+           g_bd_raw.w != bw || g_bd_raw.h < backdrop_cap_h();
+}
+
+/* Tallest page the panel can show.  Probed by building every page once, so a
+ * switch to 材质与光效 or the empty prompt never needs a second screen grab. */
+static int page_rows_max(void)
+{
+    int save = g_page, best = 0, p;
+
+    for (p = PAGE_MAIN; p <= PAGE_MATERIAL; p++)
+    {
+        int h;
+        g_page = p;
+        build_rows();
+        h = rows_height();
+        if (h > best)
+            best = h;
+    }
+    g_page = save;
+    build_rows();
+    return best;
 }
 
 static void ensure_backdrop(void)
@@ -1356,10 +1437,7 @@ static void ensure_backdrop(void)
      * back and must supply that diffusion honestly. */
     float br = g_host->cfg->blur_radius + 12.0f;
     int q = (int)lroundf(g_host->cfg->blur_radius * 10.0f);
-    /* Capture taller than the panel needs: the "empty the bin?" prompt grows
-     * the panel while it animates, and re-grabbing the screen every frame of
-     * that animation is exactly the hitch it looks like. */
-    int cap_h = bh + CONFIRM_EXTRA + 8;
+    int cap_h = backdrop_cap_h();
     RgBitmap fresh;
 
     if (g_bd_valid && g_bd_x == bx && g_bd_y == by &&
@@ -1374,10 +1452,13 @@ static void ensure_backdrop(void)
             glass_release(&g_bd_raw);
             glass_release(&g_bd_blur);
             g_bd_raw_q = -1;
+            /* Grab on the UI thread; the panel itself is hidden for this
+             * frame.  The card's live tile is deliberately left untouched:
+             * its magnifier capture is clean, and rebuilding the shared tile
+             * through the plate here made the card's glass shift tone the
+             * instant the panel opened. */
             if (glass_capture(bx, by, bw, cap_h, &g_bd_raw))
             {
-                /* glass_capture() excludes our own layered windows from the
-                 * grab, so no reconstruction / punching is needed. */
                 g_bd_raw_x = bx;
                 g_bd_raw_y = by;
             }
@@ -1407,9 +1488,11 @@ static void ensure_backdrop(void)
     }
 
     /* No capture available (wallpaper mode, or the desktop is not
-     * capturable): blur the wallpaper image instead. */
+     * capturable): blur the wallpaper image instead.  The radius must be the
+     * same `br` the live path uses - the old code passed the cache key q
+     * (radius * 10) and blurred the wallpaper ten times too hard. */
     memset(&fresh, 0, sizeof(fresh));
-    if (glass_backdrop(bx, by, bw, bh, (float)q, &fresh))
+    if (glass_backdrop(bx, by, bw, bh, br, &fresh))
     {
         glass_release(&g_bd);
         g_bd = fresh;
@@ -1450,11 +1533,24 @@ static void render_menu(void)
     float page = g_page_anim.v;
     int   dx = (int)lroundf((1.0f - page) * (float)g_page_dir * (float)sc(18, 12));
     int y, i;
+    BOOL unshown = FALSE;
 
     if (!g_host || !g_hwnd)
         return;
 
     relayout();
+
+    /* A recapture while the panel is on screen (dpi/scale change mid-open)
+     * would photograph this very surface.  Take it down for that one grab;
+     * the reveal happens right after the upload. */
+    if (backdrop_capture_needed() && IsWindowVisible(g_hwnd))
+    {
+        ShowWindow(g_hwnd, SW_HIDE);
+        glass_present();
+        glass_set_menu_rect(0, 0, 0, 0);
+        glass_set_self_layer(1, NULL, 0, 0, 0, 0);
+        unshown = TRUE;
+    }
 
     ph = rows_height();
     pw = PANEL_W;
@@ -1507,10 +1603,9 @@ static void render_menu(void)
              * pinned at 100%: even a 4% leak of the sharp window behind was
              * enough to read its text on a light panel.  The opacity slider
              * still controls tint density; only the leak is closed. */
-            render_glass_panel(&g_surf, g_bd_valid ? &g_bd : NULL,
+            render_glass_panel(&g_surf, g_bd_valid ? &g_bd : NULL, NULL,
                                MARGIN, MARGIN, pw, ph, RADIUS,
-                               rg_clampf(0.45f + g_host->cfg->opacity * 0.55f,
-                                         0.62f, 1.0f),
+                               0.95f,
                                rg_clampf(g_host->cfg->material + 0.20f,
                                          0.0f, 1.0f),
                                menu_dark(), glass_index(), accent_index(),
@@ -1605,22 +1700,30 @@ static void render_menu(void)
 
         /* The prompt paints its own plate; a hover wash on top of it would
          * double up and make the block flicker as the pointer crosses it. */
-        if (r->kind != ROW_CONFIRM)
         {
-            float hv = g_hover_anim[i].v;
+            float hv = (r->kind != ROW_CONFIRM) ? g_hover_anim[i].v : 0.0f;
+            float bw = scf(2.2f, 1.5f);
+            float full_bh = fminf((float)rh - scf(12.0f, 8.0f), scf(26.0f, 18.0f));
+            /* The accent bar runs slightly ahead of the wash (reaches full
+             * size at ~70% of the fade) and grows from its centre, so the
+             * highlight feels alive instead of merely fading in.  The wash
+             * itself opens from a hair inside the row. */
+            float lead = rg_clampf(hv * 1.45f, 0.0f, 1.0f);
+            float bh = full_bh * (0.42f + 0.58f * lead);
+            float inset = (1.0f - hv) * scf(3.0f, 2.0f);
+            float bar_a = alpha * rg_clampf(hv * 1.5f, 0.0f, 1.0f);
+
             if (hv > 0.004f)
             {
-                float bw = scf(2.2f, 1.5f);
-                float bh = fminf((float)rh - scf(12.0f, 8.0f), scf(26.0f, 18.0f));
-                fill_round(g, (float)rc.left, (float)rc.top,
-                           (float)(rc.right - rc.left), (float)rh,
+                fill_round(g, (float)rc.left + inset, (float)rc.top,
+                           (float)(rc.right - rc.left) - inset * 2.0f, (float)rh,
                            (float)ROW_R, fade(th.hover_bg, alpha * hv));
                 if (r->enabled)
                     fill_round_grad_n(g, (float)rc.left + scf(1.5f, 1.0f),
                                       (float)rc.top + ((float)rh - bh) * 0.5f,
                                       bw, bh, bw * 0.5f,
-                                      fade(th.accent, alpha * hv),
-                                      fade(th.accent_alt, alpha * hv), 2.0f);
+                                      fade(th.accent, bar_a),
+                                      fade(th.accent_alt, bar_a), 2.0f);
             }
         }
 
@@ -1644,7 +1747,7 @@ static void render_menu(void)
         }
         if (r->kind == ROW_CONFIRM)
         {
-            draw_confirm(g, i, &rc, &th, alpha);
+            draw_confirm(g, &rc, &th, alpha);
             y += rh;
             continue;
         }
@@ -1654,7 +1757,9 @@ static void render_menu(void)
                                  : (menu_dark() ? rgba(110, 150, 156, 168)
                                                 : rgba(110, 150, 152, 162));
             ARGB ic = r->enabled ? th.dim : rgba(80, 150, 152, 162);
-            float iy = (float)rc.top + ((float)rh - (float)ICON_SZ) * 0.5f;
+            float hov = g_hover_anim[i].v;
+            float line_y = (float)rc.top + (float)ROW_AIR;
+            float iy = line_y + ((float)LINE_H - (float)ICON_SZ) * 0.5f;
             float ix = (float)rc.left + (float)U1;
             float tx = ix + (float)ICON_SZ + (float)U1;
 
@@ -1668,13 +1773,18 @@ static void render_menu(void)
                 ic = th.accent;
             }
 
+            /* The glyph brightens a beat behind the wash: enough to feel the
+             * row respond, never enough to look selected. */
+            if (r->enabled && hov > 0.01f)
+                ic = mix_argb(ic, th.text, hov * 0.55f);
+
             icon_draw(g, r->icon, ix + (float)ICON_SZ * 0.5f,
                       iy + (float)ICON_SZ * 0.5f, (float)ICON_SZ, fade(ic, alpha),
                       scf(1.9f, 1.3f));
 
-            draw_text(g, r->label, g_font, tx, (float)rc.top,
+            draw_text(g, r->label, g_font, tx, line_y,
                       (float)(rc.right - rc.left) - (tx - (float)rc.left),
-                      (float)rh, fade(lc, alpha), g_fmt_l);
+                      (float)LINE_H, fade(lc, alpha), g_fmt_l);
 
             if (r->kind == ROW_TOGGLE)
             {
@@ -1717,8 +1827,21 @@ static void render_menu(void)
         /* Slide up while fading in: one UpdateLayeredWindow does both. */
         dst.x = g_win_x;
         dst.y = g_win_y + (int)lroundf((1.0f - open) * (float)sc(10, 6));
-        UpdateLayeredWindow(g_hwnd, NULL, &dst, &size, g_surf.dc, &src, 0,
-                            &bf, ULW_ALPHA);
+        glass_frame_begin();
+        if (UpdateLayeredWindow(g_hwnd, NULL, &dst, &size, g_surf.dc, &src, 0,
+                                &bf, ULW_ALPHA))
+            glass_set_self_layer(1, (const BYTE *)g_surf.bits,
+                                 g_surf.w, g_surf.h, dst.x, dst.y);
+        else
+            glass_set_self_layer(1, NULL, 0, 0, 0, 0);
+        glass_present();
+        glass_frame_end();
+    }
+
+    if (unshown)
+    {
+        ShowWindow(g_hwnd, SW_SHOWNOACTIVATE);
+        menu_sync_capture();
     }
 }
 
@@ -1979,9 +2102,13 @@ static LRESULT CALLBACK menu_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         {
             int i;
             g_hover = idx;
+            /* Enter slower than leave: the row welcomes the pointer, and the
+             * old row gets out of the way.  With the quintic curve the pair
+             * reads as one continuous wave as the pointer sweeps a column. */
             for (i = 0; i < g_nrows; i++)
                 anim_to(&g_hover_anim[i],
-                        (i == idx && g_rows[i].enabled) ? 1.0f : 0.0f, 110);
+                        (i == idx && g_rows[i].enabled) ? 1.0f : 0.0f,
+                        (i == idx) ? 150 : 90);
             start_anim_timer();
         }
         return 0;
@@ -2218,9 +2345,17 @@ void menu_sync_capture(void)
 
     if (!g_hwnd || !g_host)
         return;
-    affinity = (!g_host->cfg->capture_visible && g_live)
+    affinity = (!g_host->capture_effective && g_live)
                ? 0x00000011 /* WDA_EXCLUDEFROMCAPTURE */
                : 0;         /* WDA_NONE - screenshots include the menu */
+    {
+        static ULONGLONG t_m;
+        if (!t_m || GetTickCount64() - t_m > 300)
+        {
+            t_m = GetTickCount64();
+            OutputDebugStringW(L"");
+        }
+    }
     SetWindowDisplayAffinity(g_hwnd, affinity);
 
     /* Only punch the menu out of captures when it is actually IN them.
@@ -2231,7 +2366,18 @@ void menu_sync_capture(void)
         glass_set_menu_rect(wr.left, wr.top,
                             wr.right - wr.left, wr.bottom - wr.top);
     else
+    {
         glass_set_menu_rect(0, 0, 0, 0);
+        glass_set_self_layer(1, NULL, 0, 0, 0, 0);
+    }
+}
+
+void menu_keep_above(void)
+{
+    if (!g_hwnd || !g_shown || !IsWindowVisible(g_hwnd))
+        return;
+    SetWindowPos(g_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
 static void ensure_window(void)
@@ -2245,9 +2391,7 @@ static void ensure_window(void)
                              0, 0, PANEL_W, 100, NULL, NULL,
                              GetModuleHandleW(NULL), NULL);
 
-    glass_set_capture_hwnd(1, g_hwnd);
-    g_live = (g_host && wcscmp(g_host->cfg->blur_mode, L"wallpaper") != 0 &&
-              glass_live_available());
+    g_live = (g_host && glass_live_available());
     menu_sync_capture();
 }
 
@@ -2293,14 +2437,28 @@ static void present(int x, int y)
     g_win_x = x;
     g_win_y = y;
 
-    SetWindowPos(g_hwnd, HWND_TOPMOST, x, y, w, h,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    /* The first grab of a session must not see this panel.  With 截屏可见 on
+     * the menu sits in every screenshot, and the plate has no history for
+     * the area it covers yet - a capture taken after the show was
+     * reconstructed as a punched smear, which is exactly the backdrop that
+     * looked dislocated under the frosted panel.  Compose off screen first,
+     * then reveal. */
+    if (IsWindowVisible(g_hwnd))
+    {
+        ShowWindow(g_hwnd, SW_HIDE);
+        glass_present();
+    }
+    glass_set_menu_rect(0, 0, 0, 0);
+    glass_set_self_layer(1, NULL, 0, 0, 0, 0);
 
-    /* Publish the menu rect BEFORE the first backdrop grab of this frame,
-     * otherwise the panel photographs itself. */
-    menu_sync_capture();
+    SetWindowPos(g_hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
 
     render_menu();
+
+    ShowWindow(g_hwnd, SW_SHOWNOACTIVATE);
+    /* Register the rect only now: the grab above deliberately ran without it,
+     * so any capture that still happens while the menu is up can punch it. */
+    menu_sync_capture();
 
     g_shown = TRUE;
     if (GetCapture() != g_hwnd)
@@ -2329,8 +2487,11 @@ void menu_show(int screen_x, int screen_y)
     relayout();
     ensure_fonts();
     build_rows();
-    glass_live_menu(TRUE);      /* the menu owns the cache while it is open */
-    glass_live_invalidate();
+    /* Reserve one tall grab for the whole session: every page fits, so page
+     * slides and the empty prompt re-crop the raw instead of recapturing. */
+    g_bd_cap_h = page_rows_max() + render_refract_pad() * 2 +
+                 CONFIRM_EXTRA + 8;
+    glass_live_menu(TRUE);      /* pause the worker while the panel reads */
     g_bd_valid = FALSE;
 
     /* The screen may have changed since the last time the panel was up, so the
@@ -2412,11 +2573,6 @@ void menu_hide(void)
     start_anim_timer();
 }
 
-BOOL menu_visible(void)
-{
-    return g_shown;
-}
-
 void menu_shutdown(void)
 {
     g_closing = FALSE;
@@ -2426,6 +2582,7 @@ void menu_shutdown(void)
         KillTimer(g_hwnd, 2);
     }
     g_shown = FALSE;
+    glass_set_self_layer(1, NULL, 0, 0, 0, 0);
     if (g_hwnd)
     {
         DestroyWindow(g_hwnd);

@@ -42,7 +42,7 @@ typedef struct {
     ARGB chip_bg, chip_border;
     ARGB pill_hover_bg, pill_hover_border;
     ARGB drag_wash, drag_ring;
-    int rim_th, rim_top_a, rim_bot_a;
+    int rim_top_a, rim_bot_a;
     float tint_floor, tint_span;
     float opacity_floor, opacity_span;
     int shadow_alpha;
@@ -155,7 +155,11 @@ void render_accent_palette(int dark, int accent,
 }
 
 static const Palette PAL_LIGHT = {
-    252, 252, 255,
+    /* The material has to sit BELOW the page, not on it: a near-white tint on
+     * white paper is a no-op, and the light theme ended up with no panel at
+     * all (measured: body 244 against a 250 page, six levels of separation).
+     * 228-236 reads as a sheet of frosted glass on paper. */
+    238, 240, 246,
     16, 17, 21,
     48, 50, 60,
     /*border*/         0x14000000,
@@ -167,15 +171,14 @@ static const Palette PAL_LIGHT = {
     /*pill_hover_border*/ 0xC8007AFF,
     /*drag_wash*/      0x22007AFF,
     /*drag_ring*/      0xDC007AFF,
-    2, 122, 40,
-    /* `fac` maps the opacity slider onto the card's real coverage.  The old
-     * 0.30+0.70 mapping let 49% of the SHARP desktop through at 30% opacity,
-     * which diluted the blurred backdrop until frost only read at 100% - the
-     * "拉满才有模糊" complaint.  Blur must survive the whole slider range:
-     * floor 0.62 keeps the frosted layer dominant, the span keeps a real
-     * see-through range above it. */
-    0.22f, 0.72f,
-    0.62f, 0.38f,
+    122, 40,
+    /* `fac` IS the opacity slider value: 0 leaves only the content floating,
+     * 1 is the full frosted body.  The old floor let the slider stop at 68%
+     * no matter how far it was pulled, which is the "不能调成透明" report. */
+    /* Material 0 IS clear glass: no tint at all, so what is behind the card
+     * shows through untouched.  The span carries the whole range. */
+    0.00f, 0.98f,
+    0.0f, 1.0f,
     48,
     118, 6, 10,
     0, 122, 255
@@ -194,10 +197,10 @@ static const Palette PAL_DARK = {
     /*pill_hover_border*/ 0x82FFFFFF,
     /*drag_wash*/      0x287EBAFC,
     /*drag_ring*/      0xD77EBAFC,
-    2, 122, 34,
-    /* Same reasoning as the light palette: frost must read at every opacity. */
-    0.18f, 0.74f,
-    0.55f, 0.45f,
+    122, 34,
+    /* Same mapping as the light palette: the slider is the body alpha. */
+    0.00f, 0.98f,
+    0.0f, 1.0f,
     130,
     44, 0, 26,
     126, 186, 252
@@ -240,7 +243,9 @@ static int       g_shadow_w = 0, g_shadow_h = 0, g_shadow_r = 0, g_shadow_a = -1
 static GpBitmap *g_rim = NULL;
 static int g_rim_w, g_rim_h, g_rim_r, g_rim_a, g_rim_brd;
 static int g_rim_style;
+static int g_rim_light;
 static ARGB g_rim_accent, g_rim_accent_b;
+static float g_rim_env;
 
 static BYTE *g_body = NULL;
 static size_t g_body_cap = 0;
@@ -249,9 +254,9 @@ static void   *g_body_bmp;         /* cached GDI+ wrapper around g_body */
 static unsigned g_body_bmp_gen;
 static int     g_body_w, g_body_h;
 
-/* Cached static layer (shadow + glass body + rim + icon + title).  Rebuilt only
- * when something that feeds it changes; every other frame is a memcpy plus the
- * animated text and pills. */
+/* Cached content layer (icon + title).  The glass body is backdrop-dependent
+ * and is repainted every frame; keeping the GDI+ text and icon in their own
+ * layer is what lets a drag rebuild the card inside one display frame. */
 static BYTE *g_static = NULL;
 static int   g_static_w = 0, g_static_h = 0;
 
@@ -265,14 +270,12 @@ unsigned render_epoch(void)
 }
 
 typedef struct {
-    int w, h, dark, drag, op, mat;
-    int bx, by, bw, bh, blur10;
-    int style, accent, radius, refraction1000, icon_style;
-    unsigned bdgen;
-} StaticKey;
+    int w, h, dark, accent, icon_style;
+    unsigned epoch;
+} ContentKey;
 
-static StaticKey g_skey;
-static BOOL      g_skey_valid;
+static ContentKey g_skey;
+static BOOL       g_skey_valid;
 
 RECT g_hit_open  = { 0, 0, 0, 0 };
 RECT g_hit_empty = { 0, 0, 0, 0 };
@@ -610,6 +613,9 @@ static const BYTE *card_mask(int w, int h, int radius)
     return slot->px;
 }
 
+/* Card-edge distance field, defined with the rim further down. */
+static float card_sdf(float px, float py, float w, float h, float r);
+
 /* Soft drop shadow: black, alpha from a blurred card silhouette. */
 static GpBitmap *shadow_sprite(int cw, int ch, int radius, int alpha)
 {
@@ -681,6 +687,30 @@ static GpBitmap *shadow_sprite(int cw, int ch, int radius, int alpha)
             for (x = 0; x < w; x++)
             {
                 int a = (int)mask[(size_t)y * w + x] * alpha / 255;
+                /* Nothing of the drop is kept under the card.  The body holds
+                 * ~9% transparency so the capture can be un-composited, and a
+                 * near-black backing under it turns clear glass into a grey
+                 * veil - the drop belongs outside the silhouette only. */
+                {
+                    float dc = card_sdf((float)x - (float)SHADOW_PAD + 0.5f,
+                                        (float)y - (float)SHADOW_PAD +
+                                            (float)SHADOW_DY + 0.5f,
+                                        (float)cw, (float)ch, (float)radius);
+                    if (dc < 0.5f)
+                        a = 0;
+                }
+                /* A large soft shadow spans ~40 px with fewer than 90 alpha
+                 * levels, so the 8-bit write quantises it into visible contour
+                 * bands - the "not smooth" outer ring.  A 4x4 ordered dither of
+                 * at most a level or two breaks the steps up without adding
+                 * brightness. */
+                {
+                    static const signed char bayer[16] = {
+                        -8, 0, -6, 2, 4, -4, 6, -2,
+                        -5, 3, -7, 1, 7, -1, 5, -3
+                    };
+                    a += bayer[((y & 3) << 2) | (x & 3)] * a / 900;
+                }
                 /* premultiplied black */
                 dst[x * 4 + 0] = 0;
                 dst[x * 4 + 1] = 0;
@@ -1594,24 +1624,45 @@ void render_invalidate(void)
  * menu reads as the same material as the widget. */
 /* --------------------------------------------------------------- rim layer
  *
- * The light catch along the card edge: a 1-2 px stroke hugging the silhouette,
- * bright along the top and gone by the bottom - light falling from above.
+ * The light catch along the card edge: a hairline of light hugging the
+ * silhouette, brightest along the top, easing down the sides and closing with
+ * a faint return along the bottom lip - light falling from above onto glass.
  *
- * It is rasterised once into a cached layer for three reasons: GDI+'s preset
- * blend is a no-op on a two-colour line brush, so a gradient brush cannot
- * express the falloff; a centred stroke at the silhouette spills half a pixel
- * *outside* the card, which reads as a pale hairline over the wallpaper; and
- * the layer never changes while the card is being dragged.
+ * It is rasterised once into a cached layer and sampled from a distance field
+ * rather than stroked.  A 1.4 px stroke antialiases into a dotted seam at 1x
+ * - a string of white specks lying in the card's dark edge - and clipping
+ * that stroke to the mask on bright pages cut it into disconnected fragments.
+ * Both read as dirt.  With the field, every pixel knows how far it is from the
+ * silhouette, so the band stays continuous at any width and its falloff can be
+ * shaped instead of being one flat stroke.  The layer never changes while the
+ * card is being dragged, so this costs nothing per frame.
  */
-/* A ~1.4 px stroke sitting on the silhouette (half of it spills outside, which
- * is what gives the outer bloom), alpha 92 along the top edge easing down the
- * sides.  It reaches zero by 92% of the height: any residual alpha at the very
- * bottom row reads as a bright hairline lying across the glass, which is the
- * "gradient boundary" that kept showing up on dark wallpapers.  Positions are
- * fractions of the card height. */
+/* Position of the falloff along the height, as a fraction of the card.  It
+ * reaches zero by 92%: any residual catch on the very bottom row reads as a
+ * bright hairline lying across the glass, which is the "gradient boundary"
+ * that kept showing up on dark wallpapers. */
 static const float RG_RIM_T[6] = { 0.00f, 0.18f, 0.39f, 0.60f, 0.80f, 0.92f };
 static const float RG_RIM_K[6] = { 1.00f, 0.90f, 0.58f, 0.51f, 0.30f, 0.00f };
-#define RG_RIM_W 1.4f
+
+/* Exact signed distance to the rounded box the card mask is built from, in
+ * pixels, positive outside.  The corner is a plain arc (SQ_N == 2), so the
+ * closed form of a rounded-box field applies and the result is exact rather
+ * than a gradient-normalised approximation. */
+static float card_sdf(float px, float py, float w, float h, float r)
+{
+    float hx = w * 0.5f, hy = h * 0.5f;
+    float qx, qy, ax, ay, m;
+
+    if (r > hx) r = hx;
+    if (r > hy) r = hy;
+    if (r < 0.0f) r = 0.0f;
+    qx = fabsf(px - hx) - (hx - r);
+    qy = fabsf(py - hy) - (hy - r);
+    ax = qx > 0.0f ? qx : 0.0f;
+    ay = qy > 0.0f ? qy : 0.0f;
+    m = qx > qy ? qx : qy;
+    return sqrtf(ax * ax + ay * ay) + (m < 0.0f ? m : 0.0f) - r;
+}
 
 static float rim_gain(float t)
 {
@@ -1630,21 +1681,76 @@ static float rim_gain(float t)
     return RG_RIM_K[5];
 }
 
-static GpBitmap *rim_layer(int w, int h, int radius, int a0, int th, ARGB border,
-                           int style, ARGB accent, ARGB accent_b)
+/* Profile of the catch, measured in px of signed distance from the edge.  A
+ * hard specular line sits a third of a pixel inside the silhouette; a soft,
+ * much wider term is the light scattering in from the glass wall.  Together
+ * they read as thickness, which a single stroke cannot. */
+#define RIM_SPEC_OFF 0.45f
+#define RIM_SPEC_SIG 1.00f
+#define RIM_WALL_OFF 2.40f
+#define RIM_WALL_SIG 1.85f
+#define RIM_WALL_K   0.20f
+
+/* How much light the surface catches, from the direction its edge faces.
+ *
+ * The old profile was a function of height alone, so the left and right edges
+ * of the card were lit exactly like the top, and the ring read as a white
+ * stroke drawn around the shape.  Light that falls from straight above is
+ * caught by the top edge, grazed by the sides and barely touched by the bottom
+ * - and around the corner arcs the amount falls off continuously, which is
+ * what makes the catch look like it belongs to the material.  A small floor
+ * keeps the lower half from disappearing: a dark card with no edge at all
+ * reads as a shadow rather than as glass. */
+/* Tight specular lobe: the light source is small, so the catch collapses to a
+ * narrow streak where the edge faces it, instead of a band of even width all
+ * along the top. */
+static float rim_lobe(float ny)
+{
+    float up = -ny;
+
+    if (up <= 0.0f)
+        return 0.0f;
+    return powf(up, 2.6f);
+}
+
+static float rim_dir(float nx, float ny)
+{
+    float up = -ny, down = ny, g;
+
+    if (up < 0.0f)
+        up = 0.0f;
+    if (down < 0.0f)
+        down = 0.0f;
+    /* 0.45 on the verticals: a glass side wall does catch a lit line, and
+     * without it the dark body dissolves into its own shadow and the shape has
+     * no silhouette at all.  The bottom keeps almost nothing. */
+    g = 0.80f - 0.65f * down + 0.20f * powf(up, 1.40f);
+    (void)nx;
+    return g < 0.0f ? 0.0f : g;
+}
+
+static GpBitmap *rim_layer(int w, int h, int radius, int a0, ARGB border,
+                           int style, ARGB accent, ARGB accent_b, int light,
+                           float env_gain)
 {
     GpBitmap *bmp = NULL;
-    GpGraphics *g = NULL;
-    GpPath *path = NULL;
-    GpPen *pen = NULL;
     BitmapData bd;
     int x, y;
-
-    (void)th;
+    int brd_a = (int)((border >> 24) & 0xFF);
+    /* The catch is white carrying a hint of the material colour.  A full
+     * accent tint is what turned the rim into a beige halo on a white page. */
+    int tint = light ? 10 : (style == 2 ? 40 : (style == 1 ? 52 : 64));
+    int cr, cg, cb, dr, dg, db;
+    float s = rg_clampf(g_scale, 0.85f, 2.0f);
+    float spec_off = RIM_SPEC_OFF * s;
+    float spec_sig = RIM_SPEC_SIG * s;
+    float wall_off = RIM_WALL_OFF * s;
+    float wall_sig = RIM_WALL_SIG * s;
 
     if (g_rim && g_rim_w == w && g_rim_h == h && g_rim_r == radius &&
         g_rim_a == a0 && g_rim_brd == (int)border && g_rim_style == style &&
-        g_rim_accent == accent && g_rim_accent_b == accent_b)
+        g_rim_accent == accent && g_rim_accent_b == accent_b &&
+        g_rim_light == light && g_rim_env == env_gain)
         return g_rim;
 
     if (g_rim)
@@ -1660,83 +1766,168 @@ static GpBitmap *rim_layer(int w, int h, int radius, int a0, int th, ARGB border
     g_rim_style = style;
     g_rim_accent = accent;
     g_rim_accent_b = accent_b;
+    g_rim_light = light;
+    g_rim_env = env_gain;
+
+    if (a0 <= 0 && brd_a <= 0)
+        return NULL;
 
     if (GdipCreateBitmapFromScan0(w, h, w * 4, PixelFormat32bppPARGB, NULL, &bmp) != Ok)
         return NULL;
 
-    GdipGetImageGraphicsContext(bmp, &g);
-    GdipSetSmoothingMode(g, SmoothingModeAntiAlias);
-    GdipSetPixelOffsetMode(g, PixelOffsetModeHalf);
-    GdipGraphicsClear(g, 0);
-
-    /* Centred on the silhouette: half a pixel of the stroke lands outside the
-     * card, which is exactly the bloom the reference has. */
-    path = make_squircle(0.5f, 0.5f, (float)w - 1.0f, (float)h - 1.0f, (float)radius);
-    if (path)
-    {
-        /* The stroke starts white; the pixels are tinted across the gradient
-         * below.  A gradient pen alone would grade the stroke but not the soft
-         * 1.4 px bloom that sits outside it. */
-        if (GdipCreatePen1(ARGB_OF(a0, 255, 255, 255),
-                           RG_RIM_W, UnitPixel, &pen) == Ok)
-        {
-            GdipDrawPath(g, pen, path);
-            GdipDeletePen(pen);
-            pen = NULL;
-        }
-        if (((border >> 24) & 0xFF) > 0 &&
-            GdipCreatePen1(border, 1.0f, UnitPixel, &pen) == Ok)
-        {
-            GdipDrawPath(g, pen, path);
-            GdipDeletePen(pen);
-            pen = NULL;
-        }
-        GdipDeletePath(path);
-    }
-    GdipDeleteGraphics(g);
+    cr = 255 + (int)(((int)((accent >> 16) & 0xFF) - 255) * tint / 255);
+    cg = 255 + (int)(((int)((accent >> 8) & 0xFF) - 255) * tint / 255);
+    cb = 255 + (int)(((int)(accent & 0xFF) - 255) * tint / 255);
+    /* Second material stop for the lower half: the catch carries the same
+     * two-tone dialogue as the body instead of one flat white. */
+    dr = 255 + (int)(((int)((accent_b >> 16) & 0xFF) - 255) * tint / 255);
+    dg = 255 + (int)(((int)((accent_b >> 8) & 0xFF) - 255) * tint / 255);
+    db = 255 + (int)(((int)(accent_b & 0xFF) - 255) * tint / 255);
 
     memset(&bd, 0, sizeof(bd));
     if (GdipBitmapLockBits(bmp, NULL, ImageLockModeRead | ImageLockModeWrite,
-                           PixelFormat32bppPARGB, &bd) == Ok)
+                           PixelFormat32bppPARGB, &bd) != Ok)
     {
-        for (y = 0; y < h; y++)
+        GdipDisposeImage(bmp);
+        return NULL;
+    }
+
+    for (y = 0; y < h; y++)
+    {
+        /* Scattering inside the wall follows the same light as the catch, so
+         * the glow is strongest where the light enters: along the top. */
+        float wt = h > 1 ? (float)y / (float)(h - 1) : 0.0f;
+        float wall_vert = 0.30f + 0.70f * rim_gain(h > 1 ? wt : 1.0f);
+        float bt = rg_clampf(wt * 1.35f, 0.0f, 1.0f);
+        int rr = (int)((float)cr + ((float)dr - (float)cr) * bt);
+        int rg = (int)((float)cg + ((float)dg - (float)cg) * bt);
+        int rb = (int)((float)cb + ((float)db - (float)cb) * bt);
+        BYTE *row = (BYTE *)bd.Scan0 + (size_t)y * bd.Stride;
+
+        for (x = 0; x < w; x++)
         {
-            int fi = (int)(rim_gain(h > 1 ? (float)y / (float)(h - 1) : 0.0f) * 256.0f);
-            BYTE *row = (BYTE *)bd.Scan0 + (size_t)y * bd.Stride;
+            BYTE *q = row + x * 4;
+            float d = card_sdf((float)x + 0.5f, (float)y + 0.5f,
+                               (float)w, (float)h, (float)radius);
+            float spec, wall, as, ab, oa, dir, lobe, nx, ny, nl, lr, lg, lb;
 
-            if (fi >= 256)
+            if (d > 2.4f * s)
                 continue;
-            for (x = 0; x < w; x++)
+            /* Normal from the field itself: one central difference per axis.
+             * Only the few pixels of the band pay for it. */
+            nx = card_sdf((float)x + 1.5f, (float)y + 0.5f, (float)w, (float)h, (float)radius) -
+                 card_sdf((float)x - 0.5f, (float)y + 0.5f, (float)w, (float)h, (float)radius);
+            ny = card_sdf((float)x + 0.5f, (float)y + 1.5f, (float)w, (float)h, (float)radius) -
+                 card_sdf((float)x + 0.5f, (float)y - 0.5f, (float)w, (float)h, (float)radius);
+            nl = sqrtf(nx * nx + ny * ny);
+            dir = nl > 1e-4f ? rim_dir(nx / nl, ny / nl) : 1.0f;
+            lobe = nl > 1e-4f ? rim_lobe(ny / nl) : 1.0f;
+            /* The catch is a band where the surface faces the light and a
+             * hairline where it only grazes it: the width follows the same
+             * direction term as the strength, which is what stops the rim
+             * from reading as one even stroke around the shape. */
+            /* Over a wallpaper the catch stays a hairline: there is already
+             * light behind the glass, and a wide white band on a colourful
+             * desktop reads as a drawn border. */
             {
-                BYTE *q = row + x * 4;
-                int was_light;
-
-                if (!q[3])
-                    continue;
-                was_light = (int)q[0] + q[1] + q[2] > (int)q[3] * 2;
-                q[0] = (BYTE)((q[0] * fi) >> 8);
-                q[1] = (BYTE)((q[1] * fi) >> 8);
-                q[2] = (BYTE)((q[2] * fi) >> 8);
-                q[3] = (BYTE)((q[3] * fi) >> 8);
-
-                if (was_light && q[3] > 0)
+                float sw = spec_sig * (0.75f + 0.30f * dir) * (light ? 1.0f : 0.78f);
+                spec = expf(-0.5f * ((d + spec_off) / sw) * ((d + spec_off) / sw));
+            }
+            /* Light that crossed the slab and bounced once off the far face:
+             * a dim second line just inside the bottom edge.  Without it the
+             * glass reads as a painted shell - this is the cheapest cue that
+             * there is something behind the front surface. */
+            {
+                float bounce_y = ny > 0.0f ? ny : 0.0f;
+                float bd_off = 3.4f * s;
+                wall = RIM_WALL_K * wall_vert *
+                       expf(-0.5f * ((d + wall_off) / wall_sig) *
+                            ((d + wall_off) / wall_sig)) +
+                       0.34f * bounce_y * bounce_y *
+                       expf(-0.5f * ((d + bd_off) / (1.3f * s)) *
+                            ((d + bd_off) / (1.3f * s)));
+            }
+            if (light)
+            {
+                /* On paper the edge cannot be told by light: a white hairline
+                 * on white is invisible.  A real glass edge reads as a dark
+                 * contour where the surface grazes the light and as a white
+                 * catch where it faces it, so the alpha keeps a floor and the
+                 * colour swings instead. */
+                as = (spec + wall) * (0.28f + 0.72f * dir) * (float)a0;
+            }
+            else
+            {
+                /* The catch follows the light source, not the height: a tight
+                 * lobe where the edge faces the light, the old even term for
+                 * the sides so the silhouette still closes. */
+                as = (spec + wall) * (0.72f * dir + 0.55f * lobe) * (float)a0;
+            }
+            as *= env_gain;
+            if (d > 0.0f)
+            {
+                /* Outside the silhouette only a half-pixel bloom survives.  On
+                 * a bright page anything wider reads as a pale halo around the
+                 * card; on a wallpaper it is the light the glass catches. */
+                float cut = rg_clampf((1.45f * s - d) / (1.1f * s), 0.0f, 1.0f);
+                as *= (light ? 0.45f : 0.55f) * cut;
+            }
+            ab = brd_a > 0
+                 ? (float)brd_a * expf(-0.5f * ((d + 0.28f * s) / (0.62f * s)) *
+                                       ((d + 0.28f * s) / (0.62f * s)))
+                 : 0.0f;
+            if (as < 0.4f && ab < 0.4f)
+                continue;
+            if (as > 255.0f)
+                as = 255.0f;
+            {
+                /* The catch loses its whiteness where the light only grazes the
+                 * surface.  Keeping it white all the way round is what makes a
+                 * rim look like a stroke drawn on top of the card; dimming the
+                 * colour towards neutral at the sides lets the edge stay lit
+                 * without turning into an outline. */
+                if (light)
                 {
-                    float t = rg_clampf((float)x / (float)(w > 1 ? w - 1 : 1) * 0.64f +
-                                        (float)y / (float)(h > 1 ? h - 1 : 1) * 0.36f,
-                                        0.0f, 1.0f);
-                    ARGB c = blend_argb(accent, accent_b, t);
-                    int tint = style == 2 ? 104 : (style == 1 ? 138 : 164);
-                    int br = ((c >> 16) & 0xFF) * tint / 255 + 255 * (255 - tint) / 255;
-                    int bg = ((c >> 8) & 0xFF) * tint / 255 + 255 * (255 - tint) / 255;
-                    int bb = (c & 0xFF) * tint / 255 + 255 * (255 - tint) / 255;
-                    q[0] = (BYTE)(bb * q[3] / 255);
-                    q[1] = (BYTE)(bg * q[3] / 255);
-                    q[2] = (BYTE)(br * q[3] / 255);
+                    float w = 0.25f * dir + 0.75f * lobe;
+                    lr = 176.0f + (255.0f - 176.0f) * w;
+                    lg = 178.0f + (255.0f - 178.0f) * w;
+                    lb = 184.0f + (255.0f - 184.0f) * w;
+                }
+                else
+                {
+                    float k = 0.66f + 0.34f * (0.45f * dir + 0.55f * lobe);
+                    lr = (float)rr * k;
+                    lg = (float)rg * k;
+                    lb = (float)rb * k;
+                }
+                /* A lens splits the catch by a hair: warm on the outside of the
+                 * band, cool on the inside.  Two levels of colour separation,
+                 * enough to read as glass rather than as white paint. */
+                {
+                    /* Only inside the catch.  Applied everywhere it turned
+                     * into coloured specks along the lower edge, where the
+                     * band is a dark contour with almost no signal. */
+                    float disp = rg_clampf((d + spec_off) * 10.0f * lobe,
+                                           -16.0f, 16.0f);
+                    lr += disp;
+                    lb -= disp;
                 }
             }
+            /* The border sits under the catch, so the two never sum to a
+             * brighter-than-white seam. */
+            oa = as + ab * (1.0f - as / 255.0f);
+            if (oa > 255.0f)
+                oa = 255.0f;
+            q[0] = (BYTE)((lb * as + (float)(border & 0xFF) * ab *
+                           (1.0f - as / 255.0f)) / 255.0f);
+            q[1] = (BYTE)((lg * as + (float)((border >> 8) & 0xFF) * ab *
+                           (1.0f - as / 255.0f)) / 255.0f);
+            q[2] = (BYTE)((lr * as + (float)((border >> 16) & 0xFF) * ab *
+                           (1.0f - as / 255.0f)) / 255.0f);
+            q[3] = (BYTE)(oa + 0.5f);
         }
-        GdipBitmapUnlockBits(bmp, &bd);
     }
+    GdipBitmapUnlockBits(bmp, &bd);
 
     g_rim = bmp;
     return g_rim;
@@ -1767,23 +1958,39 @@ static int backdrop_channel(const BYTE *src, size_t stride, int w, int h,
     return rg_clampi((int)lroundf(top + (bottom - top) * ty), 0, 255);
 }
 
-static void paint_glass(GpGraphics *g, const RgBitmap *bd,
+/* Set for the card while it is inside the capture (see RgRenderState::
+ * unblend_body).  An opaque body cannot be un-composited - (c - f) / (1 - a)
+ * divides by zero - so the card's own picture would survive in the backdrop
+ * and the glass would show a blurred copy of itself.  Keeping the body a few
+ * percent transparent gives the inversion real signal while looking identical
+ * (the backdrop behind the glass is already baked in). */
+static int g_unblend_body;
+
+static void paint_glass(GpGraphics *g, const RgBitmap *bd, const RgBitmap *rim,
                         int x, int y, int w, int h, int radius,
                         float opacity, float material, int drag_hover,
                         const Palette *p, int dark, int glass_style, int accent,
-                        float refraction, float coverage)
+                        float refraction, float coverage, int flat)
 {
     float fac = rg_clampf(p->opacity_floor + p->opacity_span * opacity,
-                          0.15f, 1.0f);
+                          0.0f, 1.0f);
     int style = style_index(glass_style);
     float refr = rg_clampf(refraction, 0.0f, 1.0f) *
                  (style == 0 ? 1.0f : (style == 1 ? 0.42f : 0.22f));
     const BYTE *mask;
+    int bd_lum = -1;   /* backdrop luminance, -1 = unknown; drives the rim tint */
+
+    /* The screenshot body has to read on a white document as well as on a dark
+     * wallpaper, and it cannot borrow contrast from a backdrop that may be
+     * missing.  The opacity slider still works above this floor. */
+    if (flat && fac < 0.74f)
+        fac = 0.74f;
 
     /* 1. shadow */
     {
         GpBitmap *sh = shadow_sprite(w, h, radius,
-                                     rg_clampi(p->shadow_alpha, 0, 255));
+                                     rg_clampi((int)((float)p->shadow_alpha *
+                                                     (0.55f + 0.45f * fac)), 0, 255));
         if (sh)
             GdipDrawImageRectI(g, sh, x - SHADOW_PAD, y - SHADOW_PAD + SHADOW_DY,
                                w + SHADOW_PAD * 2, h + SHADOW_PAD * 2);
@@ -1811,15 +2018,22 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
         /* Everything below is fixed-point integer maths.  This loop runs over
          * every pixel of the card on every frame of a drag; the float version
          * cost more than the rest of the card put together. */
+        /* The 透明度 slider is MATERIAL DENSITY, not window alpha: it scales
+         * how much of the material colour is mixed into the blurred backdrop,
+         * from colourless glass (0) to the full substance (1).  The body stays
+         * present so the card never "fades out" as a whole, and text, icons and
+         * buttons keep their own full opacity. */
+        int dens   = (int)(rg_clampf(fac, 0.0f, 1.0f) * 256.0f + 0.5f);
         int tint_a = (int)(rg_clampf(p->tint_floor + p->tint_span * material,
                                      0.0f, 1.0f) * 256.0f + 0.5f);
+        tint_a = (tint_a * dens) >> 8;
         /* A menu is READ, not glanced at.  A clean capture now gives us the
          * real desktop: behind a white window that would leave white-on-white
          * text with the dark theme.  Keep a minimum tint toward the theme
          * material whenever the surface is baked opaque (coverage > 0), so
          * contrast is guaranteed on any background.  The decorative card
          * (coverage <= 0) keeps its full transparency range. */
-        if (coverage > 0.0f && tint_a < 200)
+        if ((coverage > 0.0f || flat) && tint_a < 200)
             tint_a = 200;
         /* `fac` still drives the tint and the rim.  Coverage is separate: a
          * frosted panel must be nearly opaque or the SHARP desktop behind it
@@ -1827,8 +2041,16 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
          * work the same way - the blurred backdrop is baked into the surface,
          * not left as a half-transparent overlay.  coverage <= 0 keeps the
          * card's original "alpha follows the opacity slider" behaviour. */
-        int fac8   = (int)(rg_clampf(coverage > 0.0f ? coverage : fac,
-                                     0.0f, 1.0f) * 256.0f + 0.5f);
+        int fac8   = coverage > 0.0f
+                     ? (int)(rg_clampf(coverage, 0.0f, 1.0f) * 256.0f + 0.5f)
+                     : 256;   /* card body: always present, density is tint */
+
+        /* Leave ~7% of the composited screen visible through the body so
+         * self_unblend() has something to solve for.  232/256 is 0.906: the
+         * card looks the same (its backdrop is baked into these pixels) and
+         * the inversion gets 24 levels of signal instead of zero. */
+        if (g_unblend_body && !flat && fac8 > 238)
+            fac8 = 238;
         int drag8  = 0;
         int drag_r = 0, drag_g = 0, drag_b = 0;
         int sheen_top = style == 2 ? p->sheen_top * 3 / 4 : p->sheen_top;
@@ -1837,11 +2059,26 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
          * boundary at the corners collapses to a 3-5 px radius - which reads
          * as a square right-angle ring around the whole shape (the exact
          * artefact from the 4.5.0 screenshots).  0.45x keeps a visible arc. */
-        float refr_band = fmaxf(6.0f, (float)radius * 0.45f);
-        /* Deep enough to be obvious at 100%, still inside the captured margin
-         * at 200% DPI.  The old 1.6 + 3*scale topped out below 5 px, which on
-         * an already-blurred backdrop looked like nothing at all. */
-        float refr_depth = (3.0f + 26.0f * g_scale) * refr;
+        /* The band has to follow the displacement, not the corner radius: a
+         * big radius used to stretch it over the whole end cap, which is how
+         * the corners turned into a solid smeared block (4.15.5). */
+        float refr_band = rg_clampf(((3.0f + 16.0f * g_scale) * refr) * 1.15f,
+                                    7.0f, 30.0f);
+        /* The bend has to stay inside the band.  3 + 26*scale sampled up to
+         * ~34 px outward at 150% - beyond two 16 px grid cells - and read as
+         * the glass pulling the desktop in from too far away.  2 + 10*scale
+         * tops out at ~13 px (plus ~2 px of dispersion), i.e. under 0.6x of
+         * the 26 px band: still an obvious lens at 100%, and the sample can
+         * never reach past the captured margin at 200%. */
+        /* Twice the old travel: the slider used to top out at 15.5 px of bend
+         * on a 340 px card, which reads as a hairline lens rather than a slab. */
+        float refr_depth = (3.0f + 13.0f * g_scale) * refr;
+        /* A plane-parallel slab also shifts the whole image sideways by
+         * thickness * (1 - 1/n).  Without it the interior never moves and the
+         * glass is a bent rim pasted on a flat picture. */
+        float refr_par = (1.0f + 3.0f * g_scale) * refr;
+        int par_x = (int)lroundf(refr_par * 0.35f);
+        int par_y = (int)lroundf(refr_par * 0.90f);
         int bd_w = bd ? bd->w : 0, bd_h = bd ? bd->h : 0;
         int bd_ox = 0, bd_oy = 0;
         int mist_veil = style == 2 ? 7 : 0;
@@ -1853,6 +2090,8 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
         int a1b = accent_b & 0xFF;
         const BYTE *src = NULL;
         size_t src_stride = 0;
+        const BYTE *rsrc = NULL;
+        size_t rstride = 0;
         int px, py;
 
         /* Mist lowers contrast without changing the meaning of the material
@@ -1864,8 +2103,7 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
         {
             ARGB dc = blend_argb(accent_from(dark, accent, 255),
                                  accent_to(dark, accent, 255), 0.5f);
-            drag8 = (int)(((float)((p->drag_wash >> 24) & 0xFF) / 255.0f *
-                           rg_clampf(opacity, 0.0f, 1.0f)) * 256.0f + 0.5f);
+            drag8 = (p->drag_wash >> 24) & 0xFF;
             drag_r = (dc >> 16) & 0xFF;
             drag_g = (dc >> 8) & 0xFF;
             drag_b = dc & 0xFF;
@@ -1880,14 +2118,90 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
                 bd_ox = REFR_PAD;
                 bd_oy = REFR_PAD;
             }
+            /* The rim is the unblurred source of the same crop; only usable
+             * when its geometry matches, otherwise the sample coordinates
+             * would land in the wrong place. */
+            if (rim && rim->px && rim->w == bd->w && rim->h == bd->h)
+            {
+                rsrc = rim->px;
+                rstride = (size_t)rim->w * 4;
+            }
+        }
+
+        /* The lateral shift samples past the card edge, so it is only safe
+         * when the capture actually carries the margin around it. */
+        if (bd_ox <= 0 && bd_oy <= 0)
+        {
+            par_x = 0;
+            par_y = 0;
+        }
+
+        /* Contrast floor that follows the backdrop.
+         *
+         * The tint is a blend, not an opacity: at a fixed material level a dark
+         * card over a white document lands around #6D6D79, and the page text
+         * behind it stays legible right through the title.  Apple's materials
+         * solve this by getting denser over bright content, and so does this -
+         * the tint is solved so the body keeps a TARGET luminance instead of a
+         * target tint.  It changes COLOUR only: the body alpha stays at the
+         * 0.906 that self_unblend() needs, so the card stays recoverable from
+         * the composite and still shows what is behind it.
+         *
+         * The low end is untouched (a dark wallpaper keeps its original
+         * material), which is why the switch costs nothing on the desktop. */
+        if (src && bd_w > 0 && bd_h > 0)
+        {
+            int si, sn = 0, sl = 0;
+            int step = (bd_w * bd_h) / 512 + 1;
+            int tint_lum = (p->tint_r * 77 + p->tint_g * 151 + p->tint_b * 28) >> 8;
+
+            for (si = 0; si < bd_w * bd_h; si += step)
+            {
+                const BYTE *q = src + (size_t)si * 4;
+                sl += (q[2] * 77 + q[1] * 151 + q[0] * 28) >> 8;
+                sn++;
+            }
+            if (sn)
+            {
+                int lum = sl / sn;
+                int target = dark ? 44 : 236;
+                int t = 0;
+
+                bd_lum = lum;
+
+                if (dark && lum > target)
+                    t = (lum - target) * 256 / (lum - tint_lum + 1);
+                else if (!dark && lum < target)
+                    t = (target - lum) * 256 / (tint_lum - lum + 1);
+                /* Scaled by the MATERIAL slider, not by the dead opacity one.
+                 *
+                 * This floor exists only to keep text readable when the glass
+                 * is dense.  Applied at full strength it made the body jump to
+                 * the target luminance no matter where the material slider
+                 * was, so "0" was not transparent at all - and because it only
+                 * fires when the backdrop is darker than the target, the card
+                 * looked clear over a bright window and milky white over the
+                 * wallpaper.  That single term is the "only works over
+                 * windows" report. */
+                t = (t * (int)(rg_clampf(material, 0.0f, 1.0f) * 256.0f)) >> 8;
+                if (t > 256)
+                    t = 256;
+                if (t > tint_a)
+                    tint_a = t;
+            }
         }
 
         for (py = 0; py < h; py++)
         {
+            /* The sheen is light scattered inside the material, so it scales
+             * with it.  At full strength on clear glass it laid a 46% white
+             * veil over the top half - the card read as frosted white even
+             * with the material slider at zero. */
             int sh = sheen_alpha(py, h, sheen_top, sheen_top / 3, bottom_shade);
+            sh = (sh * (int)(rg_clampf(material, 0.0f, 1.0f) * 256.0f)) >> 8;
             BYTE *dst = g_body + (size_t)py * w * 4;
-            const BYTE *sp = src ? src + (size_t)(py + bd_oy) * src_stride +
-                                   (size_t)bd_ox * 4 : NULL;
+            const BYTE *sp = src ? src + (size_t)(py + bd_oy + par_y) * src_stride +
+                                   (size_t)(bd_ox + par_x) * 4 : NULL;
             const BYTE *mp = mask + (size_t)py * w;
 
             for (px = 0; px < w; px++, dst += 4, mp++)
@@ -1943,9 +2257,15 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
                         float nx, ny, nl;
                         float bend = k * sqrtf(k);
                         float amount = refr_depth * bend;
-                        float split = (2.3f * refr) * k;
-                        float bx = (float)(bd_ox + px);
-                        float by = (float)(bd_oy + py);
+                        /* No per-channel offset here.  Splitting the sample by
+                         * colour also splits the band's own gradient, and over
+                         * a shadowed edge that prints as cyan/magenta rows
+                         * several levels wide - visible dirt on a flat page.
+                         * The chromatic edge lives in the catch instead (see
+                         * rim_layer), where it is 1 px of a bright line. */
+                        float split = 0.0f;
+                        float bx = (float)(bd_ox + px + par_x);
+                        float by = (float)(bd_oy + py + par_y);
 
                         nx = sx * ox;
                         ny = sy * oy;
@@ -1955,6 +2275,7 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
                             nx /= nl;
                             ny /= nl;
                         }
+
                         r = backdrop_channel(src, src_stride, bd_w, bd_h,
                                              bx + nx * (amount + split),
                                              by + ny * (amount + split), 2);
@@ -1964,6 +2285,34 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
                         b = backdrop_channel(src, src_stride, bd_w, bd_h,
                                              bx + nx * (amount - split),
                                              by + ny * (amount - split), 0);
+
+                        /* A blurred plane loses all local contrast once the
+                         * radius swallows the features, so the bend above has
+                         * nothing left to refract and the rim goes flat at high
+                         * blur values.  The band is exactly where a real lens
+                         * shows the sharp surroundings, so mix the unblurred
+                         * crop back in there, fading to pure blurred toward the
+                         * inner edge to keep the seam invisible. */
+                        if (rsrc)
+                        {
+                            float sk = bend * 1.25f;
+                            int sr, sg, sb;
+
+                            if (sk > 1.0f)
+                                sk = 1.0f;
+                            sr = backdrop_channel(rsrc, rstride, bd_w, bd_h,
+                                                  bx + nx * (amount + split),
+                                                  by + ny * (amount + split), 2);
+                            sg = backdrop_channel(rsrc, rstride, bd_w, bd_h,
+                                                  bx + nx * amount,
+                                                  by + ny * amount, 1);
+                            sb = backdrop_channel(rsrc, rstride, bd_w, bd_h,
+                                                  bx + nx * (amount - split),
+                                                  by + ny * (amount - split), 0);
+                            r += (int)((float)(sr - r) * sk);
+                            g += (int)((float)(sg - g) * sk);
+                            b += (int)((float)(sb - b) * sk);
+                        }
 
                         /* A thin lit meniscus sells the thickness of the glass;
                          * its width follows the same slider, so the control has
@@ -2011,6 +2360,10 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
                         mix = (int)(glow * glow * 62.0f) +
                               (int)(top * top * 18.0f);
                     }
+                    /* The two-stop accent field is part of the material too:
+                     * at material 0 it was still laying a 5-13% colour wash
+                     * over clear glass. */
+                    mix = (mix * (int)(rg_clampf(material, 0.0f, 1.0f) * 256.0f)) >> 8;
                     if (mix > 0)
                     {
                         r += ((ar - r) * mix) >> 8;
@@ -2043,13 +2396,30 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
 
                 /* A fixed, monochrome +/-1 grain prevents temporal sparkle and
                  * avoids the coloured speckle that makes frosted glass look dirty. */
-                if (style == 2)
+                if (style == 2 && !flat)
                 {
                     unsigned hash = (unsigned)px * 0x9E3779B1u ^
                                     (unsigned)py * 0x85EBCA6Bu;
                     int grain;
                     hash ^= hash >> 16;
                     grain = (int)(hash & 3u) - 1;
+                    r = rg_clampi(r + grain, 0, 255);
+                    g = rg_clampi(g + grain, 0, 255);
+                    b = rg_clampi(b + grain, 0, 255);
+                }
+                else if (flat && !src)
+                {
+                    /* No captured pixels means no natural detail to hide the
+                     * quantisation of the tint - a bare gradient banded visibly
+                     * against a flat wallpaper.  A 2x2-cell +/-2 frost grain is
+                     * the cheapest honest substitute: it reads as diffused
+                     * surface, not as noise, and it is deterministic so the
+                     * still card never shimmers. */
+                    unsigned hash = (unsigned)(px >> 1) * 0x9E3779B1u ^
+                                    (unsigned)(py >> 1) * 0x85EBCA6Bu;
+                    int grain;
+                    hash ^= hash >> 15;
+                    grain = (int)(hash % 5u) - 2;
                     r = rg_clampi(r + grain, 0, 255);
                     g = rg_clampi(g + grain, 0, 255);
                     b = rg_clampi(b + grain, 0, 255);
@@ -2063,6 +2433,16 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
                     b += ((drag_b - b) * drag8) >> 8;
                 }
 
+                /* A constant inner hairline.
+                 *
+                 * Everything else at the rim is derived from the backdrop, so
+                 * its brightness tracks whatever is behind the card: a white
+                 * page lights the ring up, a paragraph of text cuts it into
+                 * dashes, and the outline reads as blotchy instead of one
+                 * smooth curve.  A fixed 1 px stroke that only depends on the
+                 * coverage gives the silhouette an even, continuous edge on any
+                 * background, while the refraction band above still supplies
+                 * the glassy bend. */
                 /* The refracting rim adds light on purpose, so the channels
                  * can leave 0..255 before premultiplication; wrapping here
                  * produced dark speckles on bright wallpapers. */
@@ -2078,6 +2458,44 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
                 }
                 if (a > 255)
                     a = 255;
+
+                /* Undo the transparency leak.
+                 *
+                 * The body is capped at 0.906 so self_unblend() can solve it
+                 * back out of the composited screen.  The visible cost of that
+                 * cap is the 9.4% of the SHARP screen that shows through: over
+                 * a white document it lifts the body and makes the page text
+                 * under the glass far more legible than the blur should allow.
+                 * Solving the same compositing equation forwards removes it
+                 * exactly - the screen shows what an opaque card would show,
+                 * while the surface itself stays invertible. */
+                /* Only where the mask is solid.  The inversion solves for the
+                 * colour that would produce this pixel over the SHARP screen,
+                 * which is true for a fully covered pixel; applied to the
+                 * antialiased fringe it subtracts a backdrop that is not
+                 * actually there and divides by a fraction, and the result -
+                 * composited over the shadow instead of the page - prints as a
+                 * dark outline around the whole card. */
+                if (g_unblend_body && *mp > 250 && a < 255)
+                {
+                    const BYTE *sharp = NULL;
+
+                    if (rsrc)
+                        sharp = rsrc + (size_t)(py + bd_oy) * rstride +
+                                (size_t)(px + bd_ox) * 4;
+                    else if (src)
+                        sharp = src + (size_t)(py + bd_oy) * src_stride +
+                                (size_t)(px + bd_ox) * 4;
+                    if (sharp)
+                    {
+                        int inv = 255 - a;
+                        int pr = sharp[2], pg = sharp[1], pb = sharp[0];
+
+                        r = rg_clampi((r * 255 - inv * pr) / a, 0, 255);
+                        g = rg_clampi((g * 255 - inv * pg) / a, 0, 255);
+                        b = rg_clampi((b * 255 - inv * pb) / a, 0, 255);
+                    }
+                }
 
                 /* premultiplied */
                 dst[0] = (BYTE)((b * a) >> 8);
@@ -2120,16 +2538,35 @@ static void paint_glass(GpGraphics *g, const RgBitmap *bd,
     /* 3. rim + border (cached layer, see rim_layer) */
     {
         float style_gain = style == 2 ? 0.68f : (style == 0 ? 1.08f : 1.0f);
-        int rim_a = rg_clampi((int)(p->rim_top_a * fac * style_gain), 0, 255);
-        GpBitmap *rl = rim_layer(w, h, radius, rim_a, p->rim_th, p->border,
+        /* The card's rim follows the body into transparency.  A menu keeps a
+         * hairline at any slider position - it is read, not glanced at. */
+        float rim_fac = coverage > 0.0f ? fmaxf(fac, 0.55f) : fac;
+        int rim_a = rg_clampi((int)(p->rim_top_a * rim_fac * style_gain), 0, 255);
+        /* Over a light page the edge needs a touch more light to read as glass
+         * rather than as a dark cut-out.  It used to be doubled to cover the
+         * stitched fringe; the distance-field rim no longer produces one, so
+         * a quarter more is enough and it stays off the "white seam" look. */
+        if (bd_lum > 148)
+            rim_a = rg_clampi(rim_a * 155 / 100, 0, 255);
+        /* The catch is a reflection of what is around the glass, so it dims
+         * in a dark room instead of staying at a fixed white.  Quantised to
+         * four buckets: the layer is cached on this value, and a continuous
+         * key would rebuild it on every frame of a drag. */
+        float env = 1.0f;
+        if (bd_lum >= 0)
+            env = 0.80f + 0.20f * rg_clampf((float)bd_lum / 180.0f, 0.0f, 1.0f);
+        env = floorf(env * 4.0f + 0.5f) / 4.0f;
+        GpBitmap *rl = rim_layer(w, h, radius, rim_a, p->border,
                                  style, accent_from(dark, accent, 255),
-                                 accent_to(dark, accent, 255));
+                                 accent_to(dark, accent, 255),
+                                 bd_lum > 148, env);
         if (rl)
             GdipDrawImageRectI(g, rl, x, y, w, h);
     }
 }
 
 void render_glass_panel(RgSurface *s, const RgBitmap *backdrop,
+                        const RgBitmap *rim,
                         int x, int y, int w, int h, int radius,
                         float opacity, float material, int dark,
                         int glass_style, int accent, float refraction,
@@ -2155,8 +2592,8 @@ void render_glass_panel(RgSurface *s, const RgBitmap *backdrop,
     GdipSetPixelOffsetMode(g, PixelOffsetModeHalf);
     GdipSetCompositingMode(g, CompositingModeSourceOver);
 
-    paint_glass(g, backdrop, x, y, w, h, radius, opacity, material, 0, p,
-                dark, glass_style, accent, refraction, coverage);
+    paint_glass(g, backdrop, rim, x, y, w, h, radius, opacity, material, 0, p,
+                dark, glass_style, accent, refraction, coverage, 0);
 
     GdipDeleteGraphics(g);
     GdipDisposeImage(bmp);
@@ -2186,14 +2623,11 @@ void render_theme(int dark, int accent, RgTheme *out)
     out->switch_on   = accent_from(dark, accent, 255);
 }
 
-/* Everything that does not move: shadow, glass body, rim, border, icon, title. */
-static void build_static(const RgRenderState *st, GpGraphics *g, const Layout *L)
+/* The part of the card that ignores the backdrop: icon and title.  Kept in a
+ * cached premultiplied layer so a moving frame does not re-run GDI+ text. */
+static void build_content(const RgRenderState *st, GpGraphics *g, const Layout *L)
 {
     const Palette *p = st->dark ? &PAL_DARK : &PAL_LIGHT;
-
-    paint_glass(g, st->backdrop, L->ox, L->oy, L->cw, L->ch, L->radius,
-                st->opacity, st->material, st->drag_hover, p, st->dark,
-                st->glass_style, st->accent, st->refraction, 0.0f);
 
     /* 4. icon, tinted to the current accent unless the original chip is asked
      * for.  The tray copy is generated from the same bitmap (see
@@ -2420,11 +2854,12 @@ void render_card(RgSurface *s, const RgRenderState *st)
     GpBitmap *canvas = NULL;
     GpGraphics *g = NULL;
     Layout L;
-    StaticKey key;
+    ContentKey key;
     size_t bytes;
 
     if (!s || !s->dc || !s->bits || !st)
         return;
+    g_unblend_body = st->unblend_body ? 1 : 0;
     p = st->dark ? &PAL_DARK : &PAL_LIGHT;
 
     compute_layout(st, &L);
@@ -2433,20 +2868,9 @@ void render_card(RgSurface *s, const RgRenderState *st)
     key.w = s->w;
     key.h = s->h;
     key.dark = st->dark ? 1 : 0;
-    key.drag = st->drag_hover ? 1 : 0;
-    key.op = (int)(st->opacity * 255.0f);
-    key.mat = (int)(st->material * 255.0f);
-    key.bx = st->backdrop_x;
-    key.by = st->backdrop_y;
-    key.bw = st->backdrop ? st->backdrop->w : 0;
-    key.bh = st->backdrop ? st->backdrop->h : 0;
-    key.blur10 = (int)(st->blur * 10.0f);
-    key.bdgen = st->backdrop_gen;
-    key.style = style_index(st->glass_style);
     key.accent = accent_index(st->accent);
-    key.radius = L.radius;
-    key.refraction1000 = (int)(rg_clampf(st->refraction, 0.0f, 1.0f) * 1000.0f);
     key.icon_style = st->icon_style ? 1 : 0;
+    key.epoch = g_render_epoch;
 
     bytes = (size_t)s->w * s->h * 4;
 
@@ -2471,7 +2895,7 @@ void render_card(RgSurface *s, const RgRenderState *st)
             GdipSetCompositingMode(g, CompositingModeSourceOver);
             GdipGraphicsClear(g, 0x00000000);
 
-            build_static(st, g, &L);
+            build_content(st, g, &L);
 
             GdipDeleteGraphics(g);
             GdipDisposeImage(canvas);
@@ -2481,7 +2905,41 @@ void render_card(RgSurface *s, const RgRenderState *st)
         g_skey_valid = TRUE;
     }
 
-    memcpy(s->bits, g_static, bytes);
+    /* The glass body follows the backdrop and is cheap relative to GDI+ text,
+     * so it is painted per frame; the icon/title layer is blitted 1:1 on top. */
+    memset(s->bits, 0, bytes);
+
+    if (GdipCreateBitmapFromScan0(s->w, s->h, s->w * 4, PixelFormat32bppPARGB,
+                                  s->bits, &canvas) != Ok)
+        return;
+    GdipGetImageGraphicsContext(canvas, &g);
+    GdipSetSmoothingMode(g, SmoothingModeAntiAlias);
+    GdipSetPixelOffsetMode(g, PixelOffsetModeHalf);
+    GdipSetInterpolationMode(g, InterpolationModeHighQualityBicubic);
+    GdipSetTextRenderingHint(g, TextRenderingHintAntiAlias);
+    GdipSetCompositingMode(g, CompositingModeSourceOver);
+
+    paint_glass(g, st->backdrop, st->rim, L.ox, L.oy, L.cw, L.ch, L.radius,
+                st->opacity, st->material, st->drag_hover, p, st->dark,
+                st->glass_style, st->accent, st->refraction, 0.0f, st->capture_body);
+
+    {
+        GpBitmap *content = NULL;
+
+        if (g_static &&
+            GdipCreateBitmapFromScan0(s->w, s->h, s->w * 4,
+                                      PixelFormat32bppPARGB, g_static,
+                                      &content) == Ok)
+        {
+            GdipSetInterpolationMode(g, InterpolationModeNearestNeighbor);
+            GdipDrawImageRectI(g, content, 0, 0, s->w, s->h);
+            GdipDisposeImage(content);
+        }
+    }
+
+    GdipDeleteGraphics(g);
+    GdipDisposeImage(canvas);
+
     apply_dynamic_material(s, st, &L);
 
     if (GdipCreateBitmapFromScan0(s->w, s->h, s->w * 4, PixelFormat32bppPARGB,
@@ -2635,4 +3093,27 @@ void render_card(RgSurface *s, const RgRenderState *st)
 
     GdipDeleteGraphics(g);
     GdipDisposeImage(canvas);
+
+    /* Text and the icon chip are drawn opaque on top of the body, which makes
+     * them unrecoverable for self_unblend(): the compositor equation has no
+     * solution at a = 1, and those pixels would survive in the backdrop as
+     * leftovers of the card.  Scaling the whole surface once - in premultiplied
+     * form, colour and alpha together, so it stays a valid PARGB bitmap - caps
+     * every pixel at the same 0.906 the body already uses.  The card looks
+     * identical; the inversion simply has signal everywhere. */
+    if (g_unblend_body)
+    {
+        size_t pxi, pxn = (size_t)s->w * (size_t)s->h;
+        BYTE *px = (BYTE *)s->bits;
+
+        for (pxi = 0; pxi < pxn; pxi++, px += 4)
+        {
+            if (px[3] == 0)
+                continue;
+            px[0] = (BYTE)((px[0] * 232) >> 8);
+            px[1] = (BYTE)((px[1] * 232) >> 8);
+            px[2] = (BYTE)((px[2] * 232) >> 8);
+            px[3] = (BYTE)((px[3] * 232) >> 8);
+        }
+    }
 }

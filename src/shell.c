@@ -4,38 +4,85 @@
 /* CLSID of the Recycle Bin shell folder. */
 #define RG_RECYCLE_CLSID L"shell:::{645FF040-5081-101B-9F08-00AA002F954E}"
 
-void shell_query(long long *count, long long *size)
+/* The shell folder is not re-entrant: SHQueryRecycleBin walking a huge bin
+ * while SHEmptyRecycleBin (or SHFileOperation) deletes from it is a race
+ * inside shell32.  Calls come from the poll thread and the operation thread,
+ * so serialize them here rather than trusting the UI-level busy flag alone. */
+static CRITICAL_SECTION g_shell_lock;
+static INIT_ONCE        g_shell_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK shell_lock_init(PINIT_ONCE once, PVOID param, PVOID *ctx)
+{
+    (void)once;
+    (void)param;
+    (void)ctx;
+    InitializeCriticalSection(&g_shell_lock);
+    return TRUE;
+}
+
+static void shell_lock(void)
+{
+    InitOnceExecuteOnce(&g_shell_once, shell_lock_init, NULL, NULL);
+    EnterCriticalSection(&g_shell_lock);
+}
+
+static void shell_unlock(void)
+{
+    LeaveCriticalSection(&g_shell_lock);
+}
+
+BOOL shell_query(long long *count, long long *size)
 {
     SHQUERYRBINFO info;
     HRESULT hr;
 
+    if (!count || !size)
+        return FALSE;
     memset(&info, 0, sizeof(info));
     info.cbSize = sizeof(info);
 
+    shell_lock();
     hr = SHQueryRecycleBinW(NULL, &info);
+    shell_unlock();
+
     if (FAILED(hr))
     {
         *count = 0;
         *size = 0;
-        return;
+        return FALSE;
     }
     *count = (long long)info.i64NumItems;
     *size  = (long long)info.i64Size;
+    return TRUE;
 }
 
 BOOL shell_empty(BOOL confirm)
 {
     DWORD flags = SHERB_NOPROGRESSUI | SHERB_NOSOUND;
     HRESULT hr;
-    long long after = 0, size = 0;
+    long long after = 1, size = 0;
+    int i;
 
     if (!confirm)
         flags |= SHERB_NOCONFIRMATION;
 
+    shell_lock();
     hr = SHEmptyRecycleBinW(NULL, NULL, flags);
-    (void)hr;
+    shell_unlock();
+    if (FAILED(hr))
+        return FALSE;
 
-    shell_query(&after, &size);
+    /* Explorer can still be unlinking files when SHEmptyRecycleBin returns.
+     * A single immediate count would report "failed" on a large bin even
+     * though the operation is completing normally. */
+    for (i = 0; i < 20; i++)
+    {
+        if (!shell_query(&after, &size))
+            return FALSE;
+        if (after == 0)
+            break;
+        Sleep(100);
+    }
     return after == 0;
 }
 
@@ -104,7 +151,9 @@ BOOL shell_recycle_paths(wchar_t **paths, int n, wchar_t *message, size_t msgcap
     op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI;
     op.fAnyOperationsAborted = FALSE;
 
+    shell_lock();
     rc = SHFileOperationW(&op);
+    shell_unlock();
 
     if (rc == 0 && !op.fAnyOperationsAborted)
     {
@@ -170,17 +219,4 @@ void shell_format_size(long long n, wchar_t *out, size_t cap)
         v /= 1024.0;
     }
     swprintf_s(out, cap, L"%.2f TB", v);
-}
-
-void shell_format_count(long long n, wchar_t *out, size_t cap)
-{
-    if (n == 0)
-    {
-        swprintf_s(out, cap, L"%ls", T(S_SUB_EMPTY));
-        return;
-    }
-    if (i18n_is_cjk())
-        swprintf_s(out, cap, L"%lld 项", n);
-    else
-        swprintf_s(out, cap, L"%lld item%ls", n, n == 1 ? L"" : L"s");
 }
